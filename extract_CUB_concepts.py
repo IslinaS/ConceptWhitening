@@ -6,6 +6,7 @@ PARTS_FILE = "parts/parts.txt"
 PART_LOCS_FILE = "parts/part_locs.txt"
 ATTRIBUTES_FILE = "attributes/attributes.txt"
 IMAGE_ATTRIBUTE_LABELS_FILE = "attributes/image_attribute_labels.txt"
+BOUNDING_BOX_FILE = "bounding_boxes.txt"
 IMAGES_FILE = "images.txt"
 TRAIN_TEST_SPLIT_FILE = "train_test_split.txt"
 IMAGES_DIR = "images/"
@@ -29,8 +30,26 @@ with open(IMAGES_FILE, "r") as file:
         image = line.strip().split()
         image_id = int(image[0])
         image_name = image[1]
-      
+        
         IMAGES[image_id] = image_name
+
+# Read bounding boxes file to create a mapping of image_id to cropped images
+CROPPED_IMAGES = {}
+with open(BOUNDING_BOX_FILE, "r") as file:
+    for line in file:
+        image_id, x, y, width, height = map(int, line.strip().split())
+        image_name = IMAGES[image_id]
+
+        # Open the image
+        image_path = os.path.join(IMAGES_DIR, image_name)
+        try:
+            image = Image.open(image_path)
+        except FileNotFoundError:
+            print(f"Image not found: {image_path}")
+            continue
+
+        cropped_image = image.crop((x, y, x + width, y + height))
+        CROPPED_IMAGES[image_id] = cropped_image
 
 # Read parts file to create a mapping of part_id to part name
 PARTS = {}
@@ -164,13 +183,13 @@ for line in lines:
         lower = upper + BOUNDING_BOX_SIZE
 
         # Crop the image
-        cropped_image = image.crop((left, upper, right, lower))
-        part_images[part_name] = cropped_image
+        cropped_part = image.crop((left, upper, right, lower))
+        part_images[part_name] = cropped_part
 
         # Save the cropped image
         part_output_dir = os.path.join(f"{CONCEPT_DIR}_{split}/", part_name)
         output_path = os.path.join(part_output_dir, f"{image_id}.png")
-        cropped_image.save(output_path)
+        cropped_part.save(output_path)
 
     # Save crops for each attribute
     for attribute_id in attributes:
@@ -182,15 +201,10 @@ for line in lines:
             part_names = [part_names]
 
         for part_name in part_names:
-            if part_name in part_images:
-                cropped_image = part_images[part_name]
+            if part_name in part_images or part_name == "general":
+                cropped_image = CROPPED_IMAGES[image_id] if part_name == "general" else part_images[part_name]
 
                 # Save cropped image in output directory
                 attribute_output_dir = os.path.join(f"{CONCEPT_DIR}_{split}/", f"{attribute_category}_{data}")
                 output_path = os.path.join(attribute_output_dir, f"{image_id}.jpg")
                 cropped_image.save(output_path)
-
-            elif part_name == "general":
-                # TODO: save cropped bounding_boxes images
-
-# TODO: read bounding_boxes.txt and generate cropped images

@@ -48,7 +48,7 @@ with open(IMAGES_FILE, "r") as file:
 CROPPED_IMAGES = {}
 with open(BOUNDING_BOX_FILE, "r") as file:
     for line in file:
-        image_id, x, y, width, height = map(int, line.strip().split())
+        image_id, x, y, width, height = map(lambda x: int(float(x)), line.strip().split())
         image_name = IMAGES[image_id]
 
         # Open the image
@@ -219,3 +219,5 @@ for line in lines:
                 attribute_output_dir = os.path.join(save_dir, f"{attribute_category}_{data}")
                 output_path = os.path.join(attribute_output_dir, f"{image_id}.jpg")
                 cropped_image.save(output_path)
+
+    print(f"Saved cropped parts from {image_id} {image_name}")

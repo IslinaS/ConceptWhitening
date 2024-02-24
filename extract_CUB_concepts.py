@@ -1,23 +1,34 @@
-from PIL import Image
 import os
 
-# Define paths
-PARTS_FILE = "parts/parts.txt"
-PART_LOCS_FILE = "parts/part_locs.txt"
-ATTRIBUTES_FILE = "attributes/attributes.txt"
-IMAGE_ATTRIBUTE_LABELS_FILE = "attributes/image_attribute_labels.txt"
-BOUNDING_BOX_FILE = "bounding_boxes.txt"
-IMAGES_FILE = "images.txt"
-TRAIN_TEST_SPLIT_FILE = "train_test_split.txt"
-IMAGES_DIR = "images/"
+from argparse import ArgumentParser
+from PIL import Image
 
-CONCEPT_DIR = "concept"
-CONCEPT_DIR_TRAIN = CONCEPT_DIR + "_train/"
-CONCEPT_DIR_TEST = CONCEPT_DIR + "_test/"
+parser = ArgumentParser(description="Create CUB_200_2011 auxiliary datasets.")
+parser.add_argument("--cub-path", type=str, help="Path to the CUB_200_2011 dataset directory")
+parser.add_argument("--concept-path", type=str, help="Path to the concept directory")
+args = parser.parse_args()
+
+CUB_DIR = args.cub_path
+CONCEPT_DIR = args.concept_path
+
+# Define paths
+PARTS_FILE = os.path.join(CUB_DIR, "parts", "parts.txt")
+PART_LOCS_FILE = os.path.join(CUB_DIR, "parts", "part_locs.txt")
+ATTRIBUTES_FILE = os.path.join(CUB_DIR, "attributes", "attributes.txt")
+IMAGE_ATTRIBUTE_LABELS_FILE = os.path.join(CUB_DIR, "attributes", "image_attribute_labels.txt")
+BOUNDING_BOX_FILE = os.path.join(CUB_DIR, "bounding_boxes.txt")
+IMAGES_FILE = os.path.join(CUB_DIR, "images.txt")
+TRAIN_TEST_SPLIT_FILE = os.path.join(CUB_DIR, "train_test_split.txt")
+IMAGES_DIR = os.path.join(CUB_DIR, "images")
+
+CONCEPT_DIR_TRAIN = os.path.join(CONCEPT_DIR, "concept_train")
+CONCEPT_DIR_TEST = os.path.join(CONCEPT_DIR, "concept_test")
 
 BOUNDING_BOX_SIZE = 100
 
-# Create output directory if it doesn't exist
+# Create concept directories if they don't exist
+if not os.path.exists(CONCEPT_DIR):
+    os.makedirs(CONCEPT_DIR)
 if not os.path.exists(CONCEPT_DIR_TRAIN):
     os.makedirs(CONCEPT_DIR_TRAIN)
 if not os.path.exists(CONCEPT_DIR_TEST):
@@ -153,7 +164,7 @@ with open(TRAIN_TEST_SPLIT_FILE, "r") as file:
 for line in lines:
     image_id, is_training_image = map(int, line.strip().split())
     image_name = IMAGES[image_id]
-    split = "train" if is_training_image else "test"
+    save_dir = CONCEPT_DIR_TRAIN if is_training_image else CONCEPT_DIR_TEST
 
     # Open the image
     image_path = os.path.join(IMAGES_DIR, image_name)
@@ -187,7 +198,7 @@ for line in lines:
         part_images[part_name] = cropped_part
 
         # Save the cropped image
-        part_output_dir = os.path.join(f"{CONCEPT_DIR}_{split}/", part_name)
+        part_output_dir = os.path.join(save_dir, part_name)
         output_path = os.path.join(part_output_dir, f"{image_id}.png")
         cropped_part.save(output_path)
 
@@ -205,6 +216,6 @@ for line in lines:
                 cropped_image = CROPPED_IMAGES[image_id] if part_name == "general" else part_images[part_name]
 
                 # Save cropped image in output directory
-                attribute_output_dir = os.path.join(f"{CONCEPT_DIR}_{split}/", f"{attribute_category}_{data}")
+                attribute_output_dir = os.path.join(save_dir, f"{attribute_category}_{data}")
                 output_path = os.path.join(attribute_output_dir, f"{image_id}.jpg")
                 cropped_image.save(output_path)

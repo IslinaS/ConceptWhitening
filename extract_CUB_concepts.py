@@ -63,11 +63,16 @@ with open(BOUNDING_BOX_FILE, "r") as file:
         CROPPED_IMAGES[image_id] = cropped_image
 
 # Read parts file to create a mapping of part_id to part name
+print("Creating mapping from part_id to part_name...")       
 PARTS = {}
 with open(PARTS_FILE, "r") as file:
     for line in file:
-        part_id, part_name = line.strip().split()
-        PARTS[part_id] = part_name        
+        part_id, part_name = line.strip().split(' ', 1)
+        part_id = int(part_id)
+        part_name = part_name.replace(' ', '_')
+
+        PARTS[part_id] = part_name
+        print(f"    {part_id} {part_name}")     
         
     # Create output directory for this part if it doesn't exist
         part_output_train_dir = os.path.join(CONCEPT_DIR_TRAIN, part_name)
@@ -78,13 +83,19 @@ with open(PARTS_FILE, "r") as file:
         if not os.path.exists(part_output_test_dir):
             os.makedirs(part_output_test_dir)
 
+print()
+
 # Read parts file to create a mapping of part_id to part name
+print("Creating mapping from attribute_id to attribute_name...")
 ATTRIBUTES = {}
 with open(ATTRIBUTES_FILE, "r") as file:
     for line in file:
         attribute_id, attribute_name = line.strip().split()
+        attribute_id = int(attribute_id)
         attribute_category, data = attribute_name.split("::")
-        ATTRIBUTES[part_id] = (attribute_category, data)       
+
+        ATTRIBUTES[attribute_id] = (attribute_name, attribute_category, data)
+        print(f"    {attribute_id} {attribute_category} {data}")     
         
     # Create output directory for this part if it doesn't exist
         attribute_output_train_dir = os.path.join(CONCEPT_DIR_TRAIN, attribute_name)
@@ -94,6 +105,8 @@ with open(ATTRIBUTES_FILE, "r") as file:
         attribute_output_test_dir = os.path.join(CONCEPT_DIR_TEST, attribute_name)
         if not os.path.exists(attribute_output_test_dir):
             os.makedirs(attribute_output_test_dir)
+
+print()
 
 # Define attribute mappings to parts
 ATTRIBUTE_TO_PART_MAP = {
@@ -121,23 +134,22 @@ ATTRIBUTE_TO_PART_MAP = {
     "has_throat_color": "throat",
     # General attributes
     "has_upperparts_color": "general",
+    "has_underparts_color": "general",
     "has_head_pattern": "general",
     "has_size": "general",
     "has_shape": "general",
     "has_primary_color": "general"
 }
 
-PART_LOCATIONS = {}
-IMAGE_ATTRIBUTES = {}
-
 # Read part locations file
+PART_LOCATIONS = {}
 with open(PART_LOCS_FILE, "r") as file:
     for line in file:
         parts = line.strip().split()
         image_id = int(parts[0])
-        part_id = parts[1]
-        x = int(parts[2])
-        y = int(parts[3])
+        part_id = int(parts[1])
+        x = float(parts[2])
+        y = float(parts[3])
         visible = int(parts[4])
 
         if image_id not in PART_LOCATIONS:
@@ -146,13 +158,14 @@ with open(PART_LOCS_FILE, "r") as file:
             PART_LOCATIONS[image_id][part_id] = (x, y) 
 
 # Read image attribute labels file
+IMAGE_ATTRIBUTES = {}
 with open(IMAGE_ATTRIBUTE_LABELS_FILE, "r") as file:
     for line in file:
         attributes = line.strip().split()
         image_id, attribute_id, present = map(int, attributes[:3])
 
         if image_id not in IMAGE_ATTRIBUTES:
-            IMAGE_ATTRIBUTES[image_id] = {}
+            IMAGE_ATTRIBUTES[image_id] = []
         if present:
             IMAGE_ATTRIBUTES[image_id].append(attribute_id)
 
@@ -205,7 +218,7 @@ for line in lines:
     # Save crops for each attribute
     for attribute_id in attributes:
         # Determine the part corresponding to the attribute (if any)
-        attribute_category, data = ATTRIBUTES[attribute_id]
+        attribute_name, attribute_category, data = ATTRIBUTES[attribute_id]
         part_names = ATTRIBUTE_TO_PART_MAP[attribute_category]
 
         if type(part_names) is not list:
@@ -216,8 +229,8 @@ for line in lines:
                 cropped_image = CROPPED_IMAGES[image_id] if part_name == "general" else part_images[part_name]
 
                 # Save cropped image in output directory
-                attribute_output_dir = os.path.join(save_dir, f"{attribute_category}_{data}")
-                output_path = os.path.join(attribute_output_dir, f"{image_id}.jpg")
+                attribute_output_dir = os.path.join(save_dir, attribute_name)
+                output_path = os.path.join(attribute_output_dir, f"{image_id}_{part_name}.jpg")
                 cropped_image.save(output_path)
 
     print(f"Saved cropped parts from {image_id} {image_name}")

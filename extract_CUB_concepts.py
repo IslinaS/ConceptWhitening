@@ -1,15 +1,23 @@
 import os
+import shutil
+import random
 
 from argparse import ArgumentParser
 from PIL import Image
 
 parser = ArgumentParser(description="Create CUB_200_2011 auxiliary datasets.")
-parser.add_argument("--cub-path", type=str, help="Path to the CUB_200_2011 dataset directory")
-parser.add_argument("--concept-path", type=str, help="Path to the concept directory")
+parser.add_argument("--cub-path", type=str, required=True, help="Path to the CUB_200_2011 dataset directory")
+parser.add_argument("--concept-path", type=str, required=True, help="Path to the concept directory")
+parser.add_argument("--split-dataset", action="store_true",
+                    help="Whether to split the CUB_200_2011 dataset into train, test, and val folders")
+parser.add_argument("--keep-previous", action="store_true",
+                    help="Whether to keep previous concept, train, test, and val folders")
 args = parser.parse_args()
 
 CUB_DIR = args.cub_path
 CONCEPT_DIR = args.concept_path
+SPLIT_DATASET = args.split_dataset
+KEEP_PREVIOUS = args.keep_previous
 
 # Define paths
 PARTS_FILE = os.path.join(CUB_DIR, "parts", "parts.txt")
@@ -23,24 +31,38 @@ IMAGES_DIR = os.path.join(CUB_DIR, "images")
 
 CONCEPT_DIR_TRAIN = os.path.join(CONCEPT_DIR, "concept_train")
 CONCEPT_DIR_TEST = os.path.join(CONCEPT_DIR, "concept_test")
+TRAIN_DIR = os.path.join(CUB_DIR, 'train')
+VAL_DIR = os.path.join(CUB_DIR, 'val')
+TEST_DIR = os.path.join(CUB_DIR, 'test')
 
+VAL_TO_TRAIN_RATIO = 0.2
 BOUNDING_BOX_SIZE = 100
 
 # Create concept directories if they don't exist
-if not os.path.exists(CONCEPT_DIR):
-    os.makedirs(CONCEPT_DIR)
-if not os.path.exists(CONCEPT_DIR_TRAIN):
-    os.makedirs(CONCEPT_DIR_TRAIN)
-if not os.path.exists(CONCEPT_DIR_TEST):
-    os.makedirs(CONCEPT_DIR_TEST)
+os.makedirs(CONCEPT_DIR, exist_ok=True)
+os.makedirs(CONCEPT_DIR_TRAIN, exist_ok=True)
+os.makedirs(CONCEPT_DIR_TEST, exist_ok=True)
+
+if not KEEP_PREVIOUS:
+    shutil.rmtree(CONCEPT_DIR_TRAIN, ignore_errors=True)
+    shutil.rmtree(CONCEPT_DIR_TEST, ignore_errors=True)
+    shutil.rmtree(TRAIN_DIR, ignore_errors=True)
+    shutil.rmtree(VAL_DIR, ignore_errors=True)
+    shutil.rmtree(TEST_DIR, ignore_errors=True)
+
+if SPLIT_DATASET:
+    # Get the list of classes and create class directories
+    for class_name in os.listdir(IMAGES_DIR):
+        os.makedirs(os.path.join(TRAIN_DIR, class_name), exist_ok=True)
+        os.makedirs(os.path.join(VAL_DIR, class_name), exist_ok=True)
+        os.makedirs(os.path.join(TEST_DIR, class_name), exist_ok=True)
 
 # Read images file to create a mapping of image_id to image name
 IMAGES = {}
 with open(IMAGES_FILE, "r") as file:
     for line in file:
-        image = line.strip().split()
-        image_id = int(image[0])
-        image_name = image[1]
+        image_id, image_name = line.strip().split()
+        image_id = int(image_id)
         
         IMAGES[image_id] = image_name
 
@@ -75,13 +97,11 @@ with open(PARTS_FILE, "r") as file:
         print(f"    {part_id} {part_name}")     
         
     # Create output directory for this part if it doesn't exist
-        part_output_train_dir = os.path.join(CONCEPT_DIR_TRAIN, part_name)
-        if not os.path.exists(part_output_train_dir):
-            os.makedirs(part_output_train_dir)
+        part_output_train_dir = os.path.join(CONCEPT_DIR_TRAIN, part_name, part_name)
+        os.makedirs(part_output_train_dir, exist_ok=True)
 
         part_output_test_dir = os.path.join(CONCEPT_DIR_TEST, part_name)
-        if not os.path.exists(part_output_test_dir):
-            os.makedirs(part_output_test_dir)
+        os.makedirs(part_output_test_dir, exist_ok=True)
 
 print()
 
@@ -98,13 +118,11 @@ with open(ATTRIBUTES_FILE, "r") as file:
         print(f"    {attribute_id} {attribute_category} {data}")     
         
     # Create output directory for this part if it doesn't exist
-        attribute_output_train_dir = os.path.join(CONCEPT_DIR_TRAIN, attribute_name)
-        if not os.path.exists(attribute_output_train_dir):
-            os.makedirs(attribute_output_train_dir)
+        attribute_output_train_dir = os.path.join(CONCEPT_DIR_TRAIN, attribute_name, attribute_name)
+        os.makedirs(attribute_output_train_dir, exist_ok=True)
 
         attribute_output_test_dir = os.path.join(CONCEPT_DIR_TEST, attribute_name)
-        if not os.path.exists(attribute_output_test_dir):
-            os.makedirs(attribute_output_test_dir)
+        os.makedirs(attribute_output_test_dir, exist_ok=True)
 
 print()
 
@@ -171,66 +189,79 @@ with open(IMAGE_ATTRIBUTE_LABELS_FILE, "r") as file:
 
 # Read train_test_split.txt file
 with open(TRAIN_TEST_SPLIT_FILE, "r") as file:
-    lines = file.readlines()
+    for line in file:
+        image_id, is_training_image = map(int, line.strip().split())
+        image_name = IMAGES[image_id]
+        save_dir = CONCEPT_DIR_TRAIN if is_training_image else CONCEPT_DIR_TEST
 
-# Process each image
-for line in lines:
-    image_id, is_training_image = map(int, line.strip().split())
-    image_name = IMAGES[image_id]
-    save_dir = CONCEPT_DIR_TRAIN if is_training_image else CONCEPT_DIR_TEST
+        # Open the image
+        image_path = os.path.join(IMAGES_DIR, image_name)
+        try:
+            image = Image.open(image_path)
+        except FileNotFoundError:
+            print(f"Image not found: {image_path}")
+            continue
 
-    # Open the image
-    image_path = os.path.join(IMAGES_DIR, image_name)
-    try:
-        image = Image.open(image_path)
-    except FileNotFoundError:
-        print(f"Image not found: {image_path}")
-        continue
+        if SPLIT_DATASET:
+            if not is_training_image:
+                dest_path = os.path.join(TEST_DIR, image_name)
+            elif random.random() < VAL_TO_TRAIN_RATIO:
+                dest_path = os.path.join(VAL_DIR, image_name)
+            else:
+                dest_path = os.path.join(TRAIN_DIR, image_name)
 
-    # Get part locations for the image
-    parts = PART_LOCATIONS[image_id]
-    
-    # Get attributes for the image
-    attributes = IMAGE_ATTRIBUTES[image_id]
+            shutil.copy(image_path, dest_path)
 
-    part_images = {}
+        # Get part locations for the image
+        parts = PART_LOCATIONS[image_id]
+        
+        # Get attributes for the image
+        attributes = IMAGE_ATTRIBUTES[image_id]
 
-    # Save crops for each part location
-    for part_id in parts:
-        x, y = parts[part_id]
-        part_name = PARTS[part_id]
+        part_images = {}
 
-        # Calculate bounding box coordinates centered around the part location
-        left = max(0, x - BOUNDING_BOX_SIZE // 2)  # x - half of side length
-        upper = max(0, y - BOUNDING_BOX_SIZE // 2)  # y - half of side length
-        right = left + BOUNDING_BOX_SIZE
-        lower = upper + BOUNDING_BOX_SIZE
+        # Save crops for each part location
+        for part_id in parts:
+            x, y = parts[part_id]
+            part_name = PARTS[part_id]
 
-        # Crop the image
-        cropped_part = image.crop((left, upper, right, lower))
-        part_images[part_name] = cropped_part
+            # Calculate bounding box coordinates centered around the part location
+            left = max(0, x - BOUNDING_BOX_SIZE // 2)  # x - half of side length
+            upper = max(0, y - BOUNDING_BOX_SIZE // 2)  # y - half of side length
+            right = left + BOUNDING_BOX_SIZE
+            lower = upper + BOUNDING_BOX_SIZE
 
-        # Save the cropped image
-        part_output_dir = os.path.join(save_dir, part_name)
-        output_path = os.path.join(part_output_dir, f"{image_id}.png")
-        cropped_part.save(output_path)
+            # Crop the image
+            cropped_part = image.crop((left, upper, right, lower))
+            part_images[part_name] = cropped_part
 
-    # Save crops for each attribute
-    for attribute_id in attributes:
-        # Determine the part corresponding to the attribute (if any)
-        attribute_name, attribute_category, data = ATTRIBUTES[attribute_id]
-        part_names = ATTRIBUTE_TO_PART_MAP[attribute_category]
+            # Save the cropped image
+            part_output_dir = os.path.join(save_dir, part_name)
+            if is_training_image:
+                part_output_dir = os.path.join(part_output_dir, part_name)
 
-        if type(part_names) is not list:
-            part_names = [part_names]
+            output_path = os.path.join(part_output_dir, f"{image_id}.png")
+            cropped_part.save(output_path)
 
-        for part_name in part_names:
-            if part_name in part_images or part_name == "general":
-                cropped_image = CROPPED_IMAGES[image_id] if part_name == "general" else part_images[part_name]
+        # Save crops for each attribute
+        for attribute_id in attributes:
+            # Determine the part corresponding to the attribute (if any)
+            attribute_name, attribute_category, data = ATTRIBUTES[attribute_id]
+            part_names = ATTRIBUTE_TO_PART_MAP[attribute_category]
 
-                # Save cropped image in output directory
-                attribute_output_dir = os.path.join(save_dir, attribute_name)
-                output_path = os.path.join(attribute_output_dir, f"{image_id}_{part_name}.jpg")
-                cropped_image.save(output_path)
+            if type(part_names) is not list:
+                part_names = [part_names]
 
-    print(f"Saved cropped parts from {image_id} {image_name}")
+            for part_name in part_names:
+                if part_name in part_images or part_name == "general":
+                    cropped_image = CROPPED_IMAGES[image_id] if part_name == "general" else part_images[part_name]
+
+                    # Save cropped image in output directory
+                    attribute_output_dir = os.path.join(save_dir, attribute_name)
+                    if is_training_image:
+                        attribute_output_dir = os.path.join(attribute_output_dir, attribute_name)
+
+                    output_path = os.path.join(attribute_output_dir, f"{image_id}_{part_name}.jpg")
+                    cropped_image.save(output_path)
+
+        print(f"Saved cropped parts from {image_id} {image_name}")

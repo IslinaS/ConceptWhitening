@@ -7,6 +7,7 @@ import math
 Code adapted from BBN
 """
 
+
 class BasicBlock(nn.Module):
     expansion = 1
 
@@ -103,6 +104,7 @@ class BottleNeck(nn.Module):
         out = self.relu(out)
         return out
 
+
 class ResNet(nn.Module):
     def __init__(
         self,
@@ -177,6 +179,7 @@ class ResNet(nn.Module):
 
         return out
 
+
 def res50(
     pretrain=True,
     pretrained_model="/data/Data/pretrain_models/resnet50-19c8e357.pth",
@@ -192,4 +195,3 @@ def res50(
     else:
         print("Choose to train from scratch")
     return resnet
-

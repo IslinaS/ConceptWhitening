@@ -1,6 +1,6 @@
 import torch
 import torchvision
-from resnet import res50
+from models.ResNet50 import res50
 
 """
 Backbone weights pretrained on iNaturalist from BBN paper

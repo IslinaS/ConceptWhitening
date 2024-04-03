@@ -1,6 +1,8 @@
 # ConceptWhitening
 
-Use concept whitening to tell species apart using important features.
+Use concept whitening combined with CNNs such as ResNet50 to tell bird species apart using important features.
+
+Related research: https://github.com/zhiCHEN96/ConceptWhitening.git 
 
 CUB Dataset: https://www.vision.caltech.edu/datasets/cub_200_2011/ 
 

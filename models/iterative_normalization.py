@@ -269,41 +269,40 @@ class IterNormRotation(torch.nn.Module):
         # the gradient is accumulated with momentum to stabilize the training
         with torch.no_grad():
             # When 0<=mode, the jth column of gradient matrix is accumulated
+            # Throughout this code, g = 1, d = dimensionality of latent space, self.mode = index of current concept
             if self.mode >= 0:
                 if self.activation_mode == 'mean':
                     self.sum_G[:, self.mode, :] = self.momentum * -X_hat.mean((0, 3, 4)) + \
                         (1. - self.momentum) * self.sum_G[:, self.mode, :]
                     self.counter[self.mode] += 1
                 elif self.activation_mode == 'max':
-                    X_test_low = torch.einsum('bgchw,gdc->bgdhw', X_hat, self.running_rot)
+                    X_test = torch.einsum('bgchw,gdc->bgdhw', X_hat, self.running_rot)
+                    # bgdhw
+                    max_values_low = torch.max(torch.max(X_test, 3, keepdim=True)[0], 4, keepdim=True)[0]
+                    max_bool_low = (max_values_low == X_test).to(X_hat)
                     # bgd
-                    max_values_low = torch.max(torch.max(X_test_low, 3, keepdim=True)[0], 4, keepdim=True)[0]
-                    max_bool_low = (max_values_low == X_test_low)
+                    X_activated = (X_hat * max_bool_low).sum((3, 4))/max_bool_low.sum((3, 4))
 
                     size_C = self.concept_mat.size()
-                    X_test_high = torch.einsum('blchw,gdc->blgdhw', X_hat, self.running_rot)
-                    concept_mask = self.concept_mat.view(1, size_C[0], size_C[1], 1, 1, 1)
-                    # blgdhw
-                    X_test_high = X_test_high * concept_mask
-                    X_test_high[X_test_high == 0] = float('-inf')
-                    # blgd
-                    max_values_high = torch.max(
-                        torch.max(torch.max(X_test_high, 4, keepdim=True)[0], 5, keepdim=True)[0], 2, keepdim=True)[0]
-                    max_bool_high = (max_values_high == X_test_high)
+                    X_rot = torch.einsum('bgc,gdc->bgd', X_activated, self.running_rot)
+                    concept_mask = (
+                        F.pad(self.concept_mat[self.mode], (0, size_R[2] - size_C[0]), mode='constant', value=0)
+                    ).view(1, -1)
+                    # bgd
+                    X_rot_masked = X_rot * concept_mask
+                    X_rot_masked[X_rot_masked == 0] = float('-inf')
+                    # bgd
+                    max_values_high = torch.max(X_rot_masked, 2, keepdim=True)[0]
+                    max_bool_high = (max_values_high == X_rot_masked).to(X_activated)
 
                     # gd
-                    low_grad = -(
-                        (X_hat * max_bool_low.to(X_hat)).sum((3, 4))/max_bool_low.to(X_hat).sum((3, 4))
-                    ).mean((0,))
-                    # gd
-                    high_grad = -(
-                        (max_bool_high.to(X_hat) * X_hat.unsqueeze(3)).sum((3, 4))/max_bool_high.to(X_hat).sum((3, 4))
-                    ).mean((0, 1))
-                    # normalization
-                    normed_high_grad = (high_grad * size_C[1] * self.lamb)/self.concept_mat.sum((1,)).view(-1, 1)
+                    low_grad = -X_activated.mean((0,))
+                    # gdc, high_grad
+                    grad = -(torch.einsum('bgd,bgm->bgmd', X_activated, max_bool_high)).mean((0,)) * self.lamb / \
+                        self.concept_mat[self.mode].sum()
+                    grad[:, self.mode, :] += low_grad + grad[:, self.mode, :]
 
-                    self.sum_G[:, self.mode, :] = self.momentum * (low_grad + normed_high_grad) + \
-                        (1. - self.momentum) * self.sum_G[:, self.mode, :]
+                    self.sum_G = self.momentum * grad + (1. - self.momentum) * self.sum_G
                     self.counter[self.mode] += 1
                 elif self.activation_mode == 'pos_mean':
                     X_test = torch.einsum('bgchw,gdc->bgdhw', X_hat, self.running_rot)

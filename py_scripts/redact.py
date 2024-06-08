@@ -1,6 +1,6 @@
 import numpy as np
 
-def redact(latent_img, x1, y1, x2, y2, orig_x_dim, orig_y_dim):
+def redact(latent_img, x1, y1, x2, y2, orig_x_dim, orig_y_dim=0):
     """
     Takes a latent image and returns a redacted version. It is assumed the latent image is encoded via convolutions and pooling.
     To 'redact', all latent pixels that aren't directly related to the region of interest are set to 0.
@@ -9,11 +9,14 @@ def redact(latent_img, x1, y1, x2, y2, orig_x_dim, orig_y_dim):
     - latent_img (np array): latent image to be modified
     - x1 & y1 (int): pixel pair denoting the upper left corner of the region of interest
     - x2 & y2 (int): pixel pair denoting the bottom right corner of the region of interest
-    - orig_x_dim, orig_y_dim (int): dimensions of the original image
+    - orig_x_dim, orig_y_dim (int): dimensions of the original image. Can leave y_dim empty if image is square
 
     Returns:
     - redacted_latent_img (np array): A version of the latent image with appropriate regions redacted
     """
+    if orig_y_dim == 0:
+        orig_y_dim = orig_x_dim
+    
     latent_x_dim, latent_y_dim = latent_img.shape[:2]
 
     min_latent_x = int(np.ceil((x1 / orig_x_dim) * latent_x_dim))

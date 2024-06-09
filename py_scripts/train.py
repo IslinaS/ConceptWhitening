@@ -12,5 +12,5 @@ inat_weights = torch.load(weights_path)
 
 # Open the model
 model = res50(pretrain=False)
-model.load_model(pretrain=weights_path)    
-print(model)    
+model.load_model(pretrain=weights_path)
+print(model)

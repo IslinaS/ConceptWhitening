@@ -1,3 +1,6 @@
+__pycache__/
+models/pretrained/
+
 logs/
 secrets.txt
 

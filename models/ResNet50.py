@@ -112,7 +112,8 @@ class ResNet(nn.Module):
         num_blocks,
         last_layer_stride=2,
         whitened_layers=[1,1,1,1],
-        cw_lambda=0.1
+        cw_lambda=0.1,
+        pretrain_loc=None
     ):
         super(ResNet, self).__init__()
         self.inplanes = 64
@@ -135,7 +136,10 @@ class ResNet(nn.Module):
             stride=last_layer_stride,
         )
 
-        # The architecture is structured as [3, 4, 6, 4]
+        if pretrain_loc is not None:
+            self.load_model(pretrain=pretrain_loc)
+
+        # The architecture is structured as [3, 4, 6, 4], stored in num_blocks
         self.layers = [self.layer1, self.layer2, self.layer3, self.layer4]
         self.whitened_layers = whitened_layers
         self.BN_DIM = [64, 128, 256, 512]  # This was what was given in the pretrained model
@@ -213,17 +217,13 @@ class ResNet(nn.Module):
 
 
 def res50(
-    pretrain=True,
-    pretrained_model="/data/Data/pretrain_models/resnet50-19c8e357.pth",
+    pretrained_model=None,
     last_layer_stride=2,
 ):
     resnet = ResNet(
         BottleNeck,
         [3, 4, 6, 3],
         last_layer_stride=last_layer_stride,
+        pretrain_loc=pretrained_model
     )
-    if pretrain and pretrained_model != "":
-        resnet.load_model(pretrain=pretrained_model)
-    else:
-        print("Choose to train from scratch")
     return resnet

@@ -7,6 +7,7 @@ Reference:  Iterative Normalization: Beyond Standardization towards Efficient Wh
 import torch.nn
 import torch.nn.functional as F
 from torch.nn import Parameter
+from py_scripts.redact import redact  # This might not work?
 
 
 __all__ = ['iterative_normalization', 'IterNorm']
@@ -257,7 +258,7 @@ class IterNormRotation(torch.nn.Module):
             self.running_rot = R
             self.counter = (torch.ones(size_R[-1]) * 0.001).cuda()
 
-    def forward(self, X: torch.Tensor):
+    def forward(self, X: torch.Tensor, X_redact_coords=None, orig_x_dim=None):
         X_hat = iterative_normalization_py.apply(X, self.running_mean, self.running_wm, self.num_channels, self.T,
                                                  self.eps, self.momentum, self.training)
         # print(X_hat.shape, self.running_rot.shape)
@@ -272,22 +273,20 @@ class IterNormRotation(torch.nn.Module):
             # When 0<=mode, the jth column of gradient matrix is accumulated
             # Throughout this code, g = 1, d = dimensionality of latent space, self.mode = index of current concept
             if self.mode >= 0:
-                # TODO: X_redacted = ...
-                # TODO: change to batch redaction
-                # TODO: change all X_hat to X_redacted here
+                X_redacted = redact(X_hat, X_redact_coords, orig_x_dim)
                 # TODO: implement higher level concept gradients to other modes
                 if self.activation_mode == 'mean':
-                    X_activated = -X_hat.mean((3, 4))
-                    self.sum_G[:, self.mode, :] = self.momentum * -X_hat.mean((0, 3, 4)) + \
+                    X_activated = -X_redacted.mean((3, 4))
+                    self.sum_G[:, self.mode, :] = self.momentum * -X_redacted.mean((0, 3, 4)) + \
                         (1. - self.momentum) * self.sum_G[:, self.mode, :]
                     self.counter[self.mode] += 1
                 elif self.activation_mode == 'max':
-                    X_test = torch.einsum('bgchw,gdc->bgdhw', X_hat, self.running_rot)
+                    X_test = torch.einsum('bgchw,gdc->bgdhw', X_redacted, self.running_rot)
                     # bgdhw
                     max_values_low = torch.max(torch.max(X_test, 3, keepdim=True)[0], 4, keepdim=True)[0]
-                    max_bool_low = (max_values_low == X_test).to(X_hat)
+                    max_bool_low = (max_values_low == X_test).to(X_redacted)
                     # bgd
-                    X_activated = (X_hat * max_bool_low).sum((3, 4))/max_bool_low.sum((3, 4))
+                    X_activated = (X_redacted * max_bool_low).sum((3, 4))/max_bool_low.sum((3, 4))
 
                     size_C = self.concept_mat.size()
                     X_rot = torch.einsum('bgc,gdc->bgd', X_activated, self.running_rot)
@@ -311,22 +310,22 @@ class IterNormRotation(torch.nn.Module):
                     self.sum_G = self.momentum * grad + (1. - self.momentum) * self.sum_G
                     self.counter[self.mode] += 1
                 elif self.activation_mode == 'pos_mean':
-                    X_test = torch.einsum('bgchw,gdc->bgdhw', X_hat, self.running_rot)
+                    X_test = torch.einsum('bgchw,gdc->bgdhw', X_redacted, self.running_rot)
                     pos_bool = X_test > 0
-                    grad = -((X_hat * pos_bool.to(X_hat)).sum((3, 4)) /
-                             (pos_bool.to(X_hat).sum((3, 4))+0.0001)).mean((0,))
+                    grad = -((X_redacted * pos_bool.to(X_redacted)).sum((3, 4)) /
+                             (pos_bool.to(X_redacted).sum((3, 4))+0.0001)).mean((0,))
                     self.sum_G[:, self.mode, :] = self.momentum * grad + \
                         (1. - self.momentum) * self.sum_G[:, self.mode, :]
                     self.counter[self.mode] += 1
                 elif self.activation_mode == 'pool_max':
-                    X_test = torch.einsum('bgchw,gdc->bgdhw', X_hat, self.running_rot)
+                    X_test = torch.einsum('bgchw,gdc->bgdhw', X_redacted, self.running_rot)
                     X_test_nchw = X_test.view(size_X)
                     maxpool_value, maxpool_indices = self.maxpool(X_test_nchw)
                     X_test_unpool = self.maxunpool(maxpool_value, maxpool_indices, output_size=size_X).view(
                         size_X[0], size_R[0], size_R[2], *size_X[2:])
                     maxpool_bool = X_test == X_test_unpool
-                    grad = -((X_hat * maxpool_bool.to(X_hat)).sum((3, 4)) /
-                             (maxpool_bool.to(X_hat).sum((3, 4)))).mean((0,))
+                    grad = -((X_redacted * maxpool_bool.to(X_redacted)).sum((3, 4)) /
+                             (maxpool_bool.to(X_redacted).sum((3, 4)))).mean((0,))
                     self.sum_G[:, self.mode, :] = self.momentum * grad + \
                         (1. - self.momentum) * self.sum_G[:, self.mode, :]
                     self.counter[self.mode] += 1
@@ -341,6 +340,7 @@ class IterNormRotation(torch.nn.Module):
             #     self.counter[self.k:] += 1
 
         # We set mode = -1 when we don't need to update G. For example, when we train for main objective
+        # TODO: @Hung I am not sure what this last one is. Change it to X_redacted if needed
         X_hat = torch.einsum('bgchw,gdc->bgdhw', X_hat, self.running_rot)
         X_hat = X_hat.view(*size_X)
         if self.affine:

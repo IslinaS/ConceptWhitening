@@ -1,13 +1,9 @@
-import torch
-import torchvision
+import sys
 from ResNet50 import res50
 
 """
-Backbone weights pretrained on iNaturalist from BBN paper
+Backbone weights pretrained on iNaturalist from BBN paper.
 """
-
-# Import the weights
-import sys
 
 # Print all directories in the Python search path
 for index, path in enumerate(sys.path):

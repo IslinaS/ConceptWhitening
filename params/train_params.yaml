@@ -1,0 +1,5 @@
+batch_size: 32
+lr: 0.05
+whitened_layers: [[1], [1], [1], [1]]   # 0-indexed
+cw_lambda: 0.1
+activation_mode: pool_max

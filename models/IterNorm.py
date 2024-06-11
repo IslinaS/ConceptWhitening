@@ -7,17 +7,14 @@ Reference:  Iterative Normalization: Beyond Standardization towards Efficient Wh
 import torch.nn
 import torch.nn.functional as F
 from torch.nn import Parameter
-from py_scripts.redact import redact  # This might not work?
+from py_scripts.redact import redact
 
 
-__all__ = ['iterative_normalization', 'IterNorm']
-
-
-class iterative_normalization_py(torch.autograd.Function):
+class IterNorm(torch.autograd.Function):
     @staticmethod
     def forward(ctx, *args, **kwargs):
         X, running_mean, running_wmat, nc, ctx.T, eps, momentum, training = args
-        # change NxCxHxW to (G x D) x(NxHxW), i.e., g*d*m
+        # change NxCxHxW to (G x D) x (N x H x W), i.e. g*d*m
         ctx.g = X.size(1) // nc
         x = X.transpose(0, 1).contiguous().view(ctx.g, nc, -1)
         _, d, m = x.size()
@@ -48,8 +45,10 @@ class iterative_normalization_py(torch.autograd.Function):
         xn = wm.matmul(xc)
         Xn = xn.view(X.size(1), X.size(0), *X.size()[2:]).transpose(0, 1).contiguous()
         ctx.save_for_backward(*saved)
+
         return Xn
 
+    # This is cursed unreadable code territory
     @staticmethod
     def backward(ctx, *grad_outputs):
         grad, = grad_outputs
@@ -58,7 +57,7 @@ class iterative_normalization_py(torch.autograd.Function):
         rTr = saved[1]  # trace of Sigma
         sn = saved[2].transpose(-2, -1)  # normalized Sigma
         P = saved[3:]  # middle result matrix,
-        g, d, m = xc.size()
+        _, _, m = xc.size()
 
         g_ = grad.transpose(0, 1).contiguous().view_as(xc)
         g_wm = g_.matmul(xc.transpose(-2, -1))
@@ -80,76 +79,19 @@ class iterative_normalization_py(torch.autograd.Function):
         # g_sigma = g_sigma + g_sigma.transpose(-2, -1)
         g_x = torch.baddbmm(wm.matmul(g_ - g_.mean(-1, keepdim=True)), g_sigma, xc)
         grad_input = g_x.view(grad.size(1), grad.size(0), *grad.size()[2:]).transpose(0, 1).contiguous()
+
         return grad_input, None, None, None, None, None, None, None
-
-
-class IterNorm(torch.nn.Module):
-    def __init__(self, num_features, num_groups=1, num_channels=None, T=5, dim=4, eps=1e-5, momentum=0.1, affine=True,
-                 *args, **kwargs):
-        super(IterNorm, self).__init__()
-        # assert dim == 4, 'IterNorm is not support 2D'
-        self.T = T
-        self.eps = eps
-        self.momentum = momentum
-        self.num_features = num_features
-        self.affine = affine
-        self.dim = dim
-        if num_channels is None:
-            num_channels = (num_features - 1) // num_groups + 1
-        num_groups = num_features // num_channels
-        while num_features % num_channels != 0:
-            num_channels //= 2
-            num_groups = num_features // num_channels
-        assert num_groups > 0 and num_features % num_groups == 0, "num features={} \
-                                                                   num groups={}".format(num_features, num_groups)
-        self.num_groups = num_groups
-        self.num_channels = num_channels
-        shape = [1] * dim
-        shape[1] = self.num_features
-        if self.affine:
-            self.weight = Parameter(torch.Tensor(*shape))
-            self.bias = Parameter(torch.Tensor(*shape))
-        else:
-            self.register_parameter('weight', None)
-            self.register_parameter('bias', None)
-
-        self.register_buffer('running_mean', torch.zeros(num_groups, num_channels, 1))
-        # running whiten matrix
-        self.register_buffer('running_wm', torch.eye(num_channels).expand(num_groups, num_channels, num_channels))
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        # self.reset_running_stats()
-        if self.affine:
-            torch.nn.init.ones_(self.weight)
-            torch.nn.init.zeros_(self.bias)
-
-    def forward(self, X: torch.Tensor):
-        X_hat = iterative_normalization_py.apply(X, self.running_mean, self.running_wm, self.num_channels, self.T,
-                                                 self.eps, self.momentum, self.training)
-        # affine
-        if self.affine:
-            return X_hat * self.weight + self.bias
-        else:
-            return X_hat
-
-    def extra_repr(self):
-        return '{num_features}, num_channels={num_channels}, T={T}, eps={eps}, ' \
-               'momentum={momentum}, affine={affine}'.format(**self.__dict__)
 
 
 class IterNormRotation(torch.nn.Module):
     """
     Concept Whitening Module
 
-    The Whitening part is adapted from IterNorm. The core of CW module is learning
-    an extra rotation matrix R that align target concepts with the output feature
-    maps.
+    The Whitening part is adapted from IterNorm. The core of the CW module is learning an extra rotation matrix R that
+    aligns target concepts with the output feature maps.
 
-    Because the concept activation is calculated based on a feature map, which
-    is a matrix, there are multiple ways to calculate the activation, denoted
-    by activation_mode.
-
+    Because the concept activation is calculated based on a feature map, which is a matrix,
+    there are multiple ways to calculate the activation, denoted by activation_mode.
     """
     def __init__(self, num_features, num_groups=1, num_channels=None, T=10, dim=4, eps=1e-5, momentum=0.05, lamb=0.1,
                  affine=False, mode=-1, activation_mode='pool_max', *args, **kwargs):
@@ -165,6 +107,7 @@ class IterNormRotation(torch.nn.Module):
         self.mode = mode
         self.activation_mode = activation_mode
 
+        # num_groups must be 1, while both num_features and num_channels are the dimensionality of the latent space.
         assert num_groups == 1, 'Please keep num_groups = 1. Current version does not support group whitening.'
         if num_channels is None:
             num_channels = (num_features - 1) // num_groups + 1
@@ -179,12 +122,9 @@ class IterNormRotation(torch.nn.Module):
         self.num_channels = num_channels
         shape = [1] * dim
         shape[1] = self.num_features
-        # if self.affine:
+
         self.weight = Parameter(torch.Tensor(*shape))
         self.bias = Parameter(torch.Tensor(*shape))
-        # else:
-        #   self.register_parameter('weight', None)
-        #   self.register_parameter('bias', None)
 
         # pooling and unpooling used in gradient computation
         self.maxpool = torch.nn.MaxPool2d(kernel_size=3, stride=3, return_indices=True)
@@ -258,89 +198,85 @@ class IterNormRotation(torch.nn.Module):
             self.running_rot = R
             self.counter = (torch.ones(size_R[-1]) * 0.001).cuda()
 
-    def forward(self, X: torch.Tensor, X_redact_coords=None, orig_x_dim=None):
-        X_hat = iterative_normalization_py.apply(X, self.running_mean, self.running_wm, self.num_channels, self.T,
-                                                 self.eps, self.momentum, self.training)
-        # print(X_hat.shape, self.running_rot.shape)
-        # nchw
+    def forward(self, X, X_redact_coords=None, orig_x_dim=None):
+        # Applying concept whitening
+        X_hat = IterNorm.apply(X, self.running_mean, self.running_wm, self.num_channels, self.T,
+                               self.eps, self.momentum, self.training)
+
+        # ndhw
         size_X = X_hat.size()
         size_R = self.running_rot.size()
-        # ngchw
+        # ngdhw
         X_hat = X_hat.view(size_X[0], size_R[0], size_R[2], *size_X[2:])
-        # updating the gradient matrix, using the concept dataset
-        # the gradient is accumulated with momentum to stabilize the training
+
+        # Updating the gradient matrix, using the concept dataset
+        # The gradient is accumulated with momentum to stabilize the training
         with torch.no_grad():
-            # When 0<=mode, the jth column of gradient matrix is accumulated
+            # When mode >= 0, the mode-th column of gradient matrix is accumulated
             # Throughout this code, g = 1, d = dimensionality of latent space, self.mode = index of current concept
             if self.mode >= 0:
                 X_redacted = redact(X_hat, X_redact_coords, orig_x_dim)
                 # TODO: implement higher level concept gradients to other modes
+                # Applying the concept activation function
                 if self.activation_mode == 'mean':
-                    X_activated = -X_redacted.mean((3, 4))
-                    self.sum_G[:, self.mode, :] = self.momentum * -X_redacted.mean((0, 3, 4)) + \
-                        (1. - self.momentum) * self.sum_G[:, self.mode, :]
-                    self.counter[self.mode] += 1
+                    # bgd
+                    X_activated = X_redacted.mean((3, 4))
+
                 elif self.activation_mode == 'max':
                     X_test = torch.einsum('bgchw,gdc->bgdhw', X_redacted, self.running_rot)
                     # bgdhw
-                    max_values_low = torch.max(torch.max(X_test, 3, keepdim=True)[0], 4, keepdim=True)[0]
-                    max_bool_low = (max_values_low == X_test).to(X_redacted)
+                    X_test[X_test == 0] = float('-inf')
+                    max_values = torch.max(torch.max(X_test, 3, keepdim=True)[0], 4, keepdim=True)[0]
+                    max_bool = (max_values == X_test).to(X_redacted)
                     # bgd
-                    X_activated = (X_redacted * max_bool_low).sum((3, 4))/max_bool_low.sum((3, 4))
+                    X_activated = (X_redacted * max_bool).sum((3, 4)) / max_bool.sum((3, 4))
 
-                    size_C = self.concept_mat.size()
-                    X_rot = torch.einsum('bgc,gdc->bgd', X_activated, self.running_rot)
-                    concept_mask = (
-                        F.pad(self.concept_mat[self.mode], (0, size_R[2] - size_C[0]), mode='constant', value=0)
-                    ).view(1, -1)
-                    # bgd
-                    X_rot_masked = X_rot * concept_mask
-                    X_rot_masked[X_rot_masked == 0] = float('-inf')
-                    # bgd
-                    max_values_high = torch.max(X_rot_masked, 2, keepdim=True)[0]
-                    max_bool_high = (max_values_high == X_rot_masked).to(X_activated)
-
-                    # gd
-                    low_grad = -X_activated.mean((0,))
-                    # gdc, high_grad
-                    grad = -(torch.einsum('bgd,bgm->bgmd', X_activated, max_bool_high)).mean((0,)) * self.lamb / \
-                        self.concept_mat[self.mode].sum()
-                    grad[:, self.mode, :] += low_grad + grad[:, self.mode, :]
-
-                    self.sum_G = self.momentum * grad + (1. - self.momentum) * self.sum_G
-                    self.counter[self.mode] += 1
                 elif self.activation_mode == 'pos_mean':
                     X_test = torch.einsum('bgchw,gdc->bgdhw', X_redacted, self.running_rot)
-                    pos_bool = X_test > 0
-                    grad = -((X_redacted * pos_bool.to(X_redacted)).sum((3, 4)) /
-                             (pos_bool.to(X_redacted).sum((3, 4))+0.0001)).mean((0,))
-                    self.sum_G[:, self.mode, :] = self.momentum * grad + \
-                        (1. - self.momentum) * self.sum_G[:, self.mode, :]
-                    self.counter[self.mode] += 1
+                    # bgdhw
+                    pos_bool = (X_test > 0).to(X_redacted)
+                    # bgd
+                    X_activated = (X_redacted * pos_bool).sum((3, 4)) / (pos_bool.sum((3, 4)) + 0.0001)
+
                 elif self.activation_mode == 'pool_max':
                     X_test = torch.einsum('bgchw,gdc->bgdhw', X_redacted, self.running_rot)
+                    # bdhw
                     X_test_nchw = X_test.view(size_X)
                     maxpool_value, maxpool_indices = self.maxpool(X_test_nchw)
+                    # bgdhw
                     X_test_unpool = self.maxunpool(maxpool_value, maxpool_indices, output_size=size_X).view(
                         size_X[0], size_R[0], size_R[2], *size_X[2:])
-                    maxpool_bool = X_test == X_test_unpool
-                    grad = -((X_redacted * maxpool_bool.to(X_redacted)).sum((3, 4)) /
-                             (maxpool_bool.to(X_redacted).sum((3, 4)))).mean((0,))
-                    self.sum_G[:, self.mode, :] = self.momentum * grad + \
-                        (1. - self.momentum) * self.sum_G[:, self.mode, :]
-                    self.counter[self.mode] += 1
-            # # When mode > k, this is not included in the paper
-            # elif self.mode>=0 and self.mode>=self.k:
-            #     X_dot = torch.einsum('ngchw,gdc->ngdhw', X_hat, self.running_rot)
-            #     X_dot = (X_dot == torch.max(X_dot, dim=2,keepdim=True)[0]).float().cuda()
-            #     X_dot_unity = torch.clamp(torch.ceil(X_dot), 0.0, 1.0)
-            #     X_G = torch.einsum('ngchw,ngdhw->gdchw', X_hat, X_dot_unity).mean((3,4))
-            #     X_G[:,:self.k,:] = 0.0
-            #     self.sum_G[:,:,:] += -X_G/size_X[0]
-            #     self.counter[self.k:] += 1
+                    maxpool_bool = (X_test == X_test_unpool).to(X_redacted)
+                    # bgd
+                    X_activated = (X_redacted * maxpool_bool).sum((3, 4)) / maxpool_bool.sum((3, 4))
+
+                # Calculating the projections onto higher level concept subspaces
+                size_C = self.concept_mat.size()
+                concept_mask = (
+                    F.pad(self.concept_mat[self.mode], (0, size_R[2] - size_C[0]), mode='constant', value=0)
+                ).view(1, -1)
+
+                X_rot = torch.einsum('bgc,gdc->bgd', X_activated, self.running_rot)
+                # bgd
+                X_rot_masked = X_rot * concept_mask
+                X_rot_masked[X_rot_masked == 0] = float('-inf')
+                max_values = torch.max(X_rot_masked, 2, keepdim=True)[0]
+                max_bool = (max_values == X_rot_masked).to(X_activated)
+
+                # Calculating the gradient matrix of the concept activation loss
+                # For grad and self.sum_G, each ROW corresponds to a concept
+                # gd
+                low_grad = -X_activated.mean((0,))
+                # gdc, high_grad
+                grad = -(torch.einsum('bgd,bgm->bgmd', X_activated, max_bool)).mean((0,)) * self.lamb / \
+                    self.concept_mat[self.mode].sum()
+                grad[:, self.mode, :] += low_grad + grad[:, self.mode, :]
+
+                # Updating the gradient matrix G
+                self.sum_G = self.momentum * grad + (1. - self.momentum) * self.sum_G
+                self.counter[self.mode] += 1
 
         # We set mode = -1 when we don't need to update G. For example, when we train for main objective
-        # TODO: @Hung I am not sure what this last one is. Change it to X_redacted if needed
         X_hat = torch.einsum('bgchw,gdc->bgdhw', X_hat, self.running_rot)
         X_hat = X_hat.view(*size_X)
         if self.affine:

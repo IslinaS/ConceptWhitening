@@ -150,7 +150,7 @@ class IterNormRotation(torch.nn.Module):
     by activation_mode.
 
     """
-    def __init__(self, num_features, num_groups=1, num_channels=None, T=10, dim=4, eps=1e-5, momentum=0.05,
+    def __init__(self, num_features, num_groups=1, num_channels=None, T=10, dim=4, eps=1e-5, momentum=0.05, lamb=0.1,
                  affine=False, mode=-1, activation_mode='pool_max', *args, **kwargs):
         super(IterNormRotation, self).__init__()
         assert dim == 4, 'IterNormRotation does not support 2D'
@@ -158,6 +158,7 @@ class IterNormRotation(torch.nn.Module):
         self.eps = eps
         self.momentum = momentum
         self.num_features = num_features
+        self.lamb = lamb
         self.affine = affine
         self.dim = dim
         self.mode = mode
@@ -271,7 +272,12 @@ class IterNormRotation(torch.nn.Module):
             # When 0<=mode, the jth column of gradient matrix is accumulated
             # Throughout this code, g = 1, d = dimensionality of latent space, self.mode = index of current concept
             if self.mode >= 0:
+                # TODO: X_redacted = ...
+                # TODO: change to batch redaction
+                # TODO: change all X_hat to X_redacted here
+                # TODO: implement higher level concept gradients to other modes
                 if self.activation_mode == 'mean':
+                    X_activated = -X_hat.mean((3, 4))
                     self.sum_G[:, self.mode, :] = self.momentum * -X_hat.mean((0, 3, 4)) + \
                         (1. - self.momentum) * self.sum_G[:, self.mode, :]
                     self.counter[self.mode] += 1

@@ -96,7 +96,7 @@ class BottleNeck(nn.Module):
 
         out = self.bn3(self.conv3(out))
 
-        if self.downsample != None:
+        if self.downsample is not None:
             residual = self.downsample(x)
         else:
             residual = x
@@ -132,6 +132,10 @@ class ResNet(nn.Module):
             512,
             stride=last_layer_stride,
         )
+
+        # TODO: add whitened layers & lambda (lamb=...), change it to 2D list
+        # TODO: add change_mode and update_rotation_matrix
+        # TODO: modify training code for our dataset & generate concept matrix
 
     def load_model(self, pretrain):
         print("Loading Backbone pretrain model from {}......".format(pretrain))

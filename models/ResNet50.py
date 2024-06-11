@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import math
+from iterative_normalization import IterNormRotation as cw_layer
 
 """
 Code adapted from BBN
@@ -111,6 +111,8 @@ class ResNet(nn.Module):
         block_type,
         num_blocks,
         last_layer_stride=2,
+        whitened_layers=[1,1,1,1],
+        cw_lambda=0.1
     ):
         super(ResNet, self).__init__()
         self.inplanes = 64
@@ -133,9 +135,35 @@ class ResNet(nn.Module):
             stride=last_layer_stride,
         )
 
-        # TODO: add whitened layers & lambda (lamb=...), change it to 2D list
-        # TODO: add change_mode and update_rotation_matrix
+        # The architecture is structured as [3, 4, 6, 4]
+        self.layers = [self.layer1, self.layer2, self.layer3, self.layer4]
+        self.whitened_layers = whitened_layers
+        self.BN_DIM = [64, 128, 256, 512]  # This was what was given in the pretrained model
+
+        for i in range(4):
+            # FOR NOW: Only do the first bn block in each layer. This can be changed
+            # Also, use pool_max by default. Again, this is changeable...
+            self.layers[i][self.whitened_layers[i]].bn1 = cw_layer(self.BN_DIM[i], activation_mode="pool_max", lamb=cw_lambda)
+        
         # TODO: modify training code for our dataset & generate concept matrix
+
+    def change_mode(self, mode):
+        """
+        Change the training mode
+        mode = -1, no update for gradient matrix G
+             = 0 to k-1, the column index of gradient matrix G that needs to be updated
+        """
+        for i in range(4):
+            self.layers[i][self.whitened_layers[i]].bn1.mode = mode
+
+
+    def update_rotation_matrix(self):
+        """
+        update the rotation R using accumulated gradient G
+        """
+        for i in range(4):
+            self.layers[i][self.whitened_layers[i]].bn1.update_rotation_matrix()
+
 
     def load_model(self, pretrain):
         print("Loading Backbone pretrain model from {}......".format(pretrain))

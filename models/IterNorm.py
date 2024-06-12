@@ -217,16 +217,16 @@ class IterNormRotation(torch.nn.Module):
             if self.mode >= 0:
                 X_redact_coords = X_redact_coords.view(-1, size_R[0], 4)  # size_R[0] = g = 1
                 X_redacted = redact(X_hat, X_redact_coords, orig_x_dim)
-                # TODO: implement higher level concept gradients to other modes
+
                 # Applying the concept activation function
                 if self.activation_mode == 'mean':
                     # bgd
-                    X_activated = X_redacted.mean((3, 4))
+                    redact_bool = (X_redacted != 0).to(X_redacted)
+                    X_activated = X_redacted.sum((3, 4)) / (redact_bool.sum((3, 4)) + 0.0001)
 
                 elif self.activation_mode == 'max':
                     X_test = torch.einsum('bgchw,gdc->bgdhw', X_redacted, self.running_rot)
                     # bgdhw
-                    X_test[X_test == 0] = float('-inf')
                     max_values = torch.max(torch.max(X_test, 3, keepdim=True)[0], 4, keepdim=True)[0]
                     max_bool = (max_values == X_test).to(X_redacted)
                     # bgd
@@ -247,7 +247,7 @@ class IterNormRotation(torch.nn.Module):
                     # bgdhw
                     X_test_unpool = self.maxunpool(maxpool_value, maxpool_indices, output_size=size_X).view(
                         size_X[0], size_R[0], size_R[2], *size_X[2:])
-                    maxpool_bool = (X_test == X_test_unpool).to(X_redacted)
+                    maxpool_bool = ((X_test == X_test_unpool) & (X_test != 0)).to(X_redacted)
                     # bgd
                     X_activated = (X_redacted * maxpool_bool).sum((3, 4)) / maxpool_bool.sum((3, 4))
 

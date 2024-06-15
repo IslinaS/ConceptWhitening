@@ -227,4 +227,9 @@ def res50(
         last_layer_stride=last_layer_stride,
         pretrain_loc=pretrained_model
     )
+
+    if pretrain and pretrained_model is not None:
+        resnet.load_model(pretrain=pretrained_model)
+
+
     return resnet

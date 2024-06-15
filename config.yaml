@@ -1,0 +1,16 @@
+seed: 42
+ngpu: 4
+
+dirs:
+  model: "models/pretrained/iNaturalist_180epoch_best.pth"
+  data: "/usr/xtmp/aak61/CUB_200_2011/datasets/cub200_cropped"
+  cp_prefix: 
+
+optim:
+  lr: 1e-3
+  momentum: 0.9
+  l2: 1e-5
+
+train:
+  epochs: 20
+  batch_size: 128

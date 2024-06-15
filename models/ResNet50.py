@@ -185,8 +185,8 @@ class ResNet(nn.Module):
 
 
 def res50(
-    pretrain=True,
-    pretrained_model="/data/Data/pretrain_models/resnet50-19c8e357.pth",
+    pretrain=False,
+    pretrained_model=None,
     last_layer_stride=2,
 ):
     resnet = ResNet(

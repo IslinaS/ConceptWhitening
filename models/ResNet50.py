@@ -230,6 +230,7 @@ def res50(
 
     if pretrain and pretrained_model is not None:
         resnet.load_model(pretrain=pretrained_model)
-
-
+    elif pretrain and pretrained_model is None:
+        print("No pretrained model specified, default weights used.")
+        
     return resnet

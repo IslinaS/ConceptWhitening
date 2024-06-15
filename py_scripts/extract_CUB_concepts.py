@@ -63,7 +63,7 @@ with open(IMAGES_FILE, "r") as file:
     for line in file:
         image_id, image_name = line.strip().split()
         image_id = int(image_id)
-        
+
         IMAGES[image_id] = image_name
 
 # Read bounding boxes file to create a mapping of image_id to cropped images
@@ -85,7 +85,7 @@ with open(BOUNDING_BOX_FILE, "r") as file:
         CROPPED_IMAGES[image_id] = cropped_image
 
 # Read parts file to create a mapping of part_id to part name
-print("Creating mapping from part_id to part_name...")       
+print("Creating mapping from part_id to part_name...")
 PARTS = {}
 with open(PARTS_FILE, "r") as file:
     for line in file:
@@ -94,8 +94,8 @@ with open(PARTS_FILE, "r") as file:
         part_name = part_name.replace(' ', '_')
 
         PARTS[part_id] = part_name
-        print(f"    {part_id} {part_name}")     
-        
+        print(f"    {part_id} {part_name}")
+
     # Create output directory for this part if it doesn't exist
         part_output_train_dir = os.path.join(CONCEPT_DIR_TRAIN, part_name, part_name)
         os.makedirs(part_output_train_dir, exist_ok=True)
@@ -115,8 +115,8 @@ with open(ATTRIBUTES_FILE, "r") as file:
         attribute_category, data = attribute_name.split("::")
 
         ATTRIBUTES[attribute_id] = (attribute_name, attribute_category, data)
-        print(f"    {attribute_id} {attribute_category} {data}")     
-        
+        print(f"    {attribute_id} {attribute_category} {data}")
+
     # Create output directory for this part if it doesn't exist
         attribute_output_train_dir = os.path.join(CONCEPT_DIR_TRAIN, attribute_name, attribute_name)
         os.makedirs(attribute_output_train_dir, exist_ok=True)
@@ -173,7 +173,7 @@ with open(PART_LOCS_FILE, "r") as file:
         if image_id not in PART_LOCATIONS:
             PART_LOCATIONS[image_id] = {}
         if visible:
-            PART_LOCATIONS[image_id][part_id] = (x, y) 
+            PART_LOCATIONS[image_id][part_id] = (x, y)
 
 # Read image attribute labels file
 IMAGE_ATTRIBUTES = {}
@@ -214,7 +214,7 @@ with open(TRAIN_TEST_SPLIT_FILE, "r") as file:
 
         # Get part locations for the image
         parts = PART_LOCATIONS[image_id]
-        
+
         # Get attributes for the image
         attributes = IMAGE_ATTRIBUTES[image_id]
 

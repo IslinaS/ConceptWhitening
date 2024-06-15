@@ -1,10 +1,11 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import math
+
+from collections import OrderedDict
+from IterNorm import IterNormRotation as CWLayer
 
 """
-Code adapted from BBN
+Code adapted from BBN.
 """
 
 
@@ -57,7 +58,6 @@ class BasicBlock(nn.Module):
 
 
 class BottleNeck(nn.Module):
-
     expansion = 4
 
     def __init__(self, inplanes, planes, stride=1):
@@ -111,6 +111,9 @@ class ResNet(nn.Module):
         block_type,
         num_blocks,
         last_layer_stride=2,
+        whitened_layers=[[0], [0], [0], [0]],
+        cw_lambda=0.1,
+        pretrain_loc=None
     ):
         super(ResNet, self).__init__()
         self.inplanes = 64
@@ -133,26 +136,55 @@ class ResNet(nn.Module):
             stride=last_layer_stride,
         )
 
-        # TODO: add whitened layers & lambda (lamb=...), change it to 2D list
-        # TODO: add change_mode and update_rotation_matrix
+        if pretrain_loc is not None:
+            self.load_model(pretrain=pretrain_loc)
+
+        # The architecture is structured as [3, 4, 6, 4], stored in num_blocks
+        self.layers = [self.layer1, self.layer2, self.layer3, self.layer4]
+        self.cw_layers: list[CWLayer] = []
+        self.BN_DIM = [64, 128, 256, 512]  # This was what was given in the pretrained model
+
+        for i in range(4):
+            for whitened_layer in whitened_layers[i]:
+                # All params in train_params.yaml can be changed
+                new_cw_layer = CWLayer(self.BN_DIM[i], activation_mode="pool_max", lamb=cw_lambda)
+                self.layers[i][whitened_layer].bn1 = new_cw_layer
+                self.cw_layers.append(new_cw_layer)
+
         # TODO: modify training code for our dataset & generate concept matrix
 
+    def change_mode(self, mode):
+        """
+        Change the training mode for each whitened layer.
+        If mode = -1, no update for gradient matrix G.
+                = 0 to k-1, the column index of gradient matrix G that needs to be updated i.e.
+                            the index of the current concept while minimizing concept alignment loss.
+        """
+        for cw_layer in self.cw_layers:
+            cw_layer.mode = mode
+
+    def update_rotation_matrix(self):
+        """
+        Update the rotation matrix R using accumulated gradient matrix G for each whitened layer.
+        """
+        for cw_layer in self.cw_layers:
+            cw_layer.update_rotation_matrix()
+
     def load_model(self, pretrain):
-        print("Loading Backbone pretrain model from {}......".format(pretrain))
+        print("Loading backbone pretrain model from {}......".format(pretrain))
         model_dict = self.state_dict()
         pretrain_dict = torch.load(pretrain)
         pretrain_dict = pretrain_dict["state_dict"] if "state_dict" in pretrain_dict else pretrain_dict
-        from collections import OrderedDict
 
         new_dict = OrderedDict()
-        for k, v in pretrain_dict.items():
-            if "cb_block" in k or "rb_block" in k:
+        for key, value in pretrain_dict.items():
+            if "cb_block" in key or "rb_block" in key:
                 continue
-            if k.startswith("module"):
-                k = k[7:]
-            if "fc" not in k and "classifier" not in k:
-                k = k.replace("backbone.", "")
-                new_dict[k] = v
+            if key.startswith("module"):
+                key = key[7:]
+            if "fc" not in key and "classifier" not in key:
+                key = key.replace("backbone.", "")
+                new_dict[key] = value
 
         model_dict.update(new_dict)
         self.load_state_dict(model_dict)
@@ -193,9 +225,6 @@ def res50(
         BottleNeck,
         [3, 4, 6, 3],
         last_layer_stride=last_layer_stride,
+        pretrain_loc=pretrained_model
     )
-    if pretrain and pretrained_model != "":
-        resnet.load_model(pretrain=pretrained_model)
-    else:
-        print("Choose to train from scratch")
     return resnet

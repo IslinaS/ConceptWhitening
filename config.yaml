@@ -1,16 +1,21 @@
 seed: 42
 ngpu: 4
+verbose: True
 
 dirs:
   model: "models/pretrained/iNaturalist_180epoch_best.pth"
   data: "/usr/xtmp/aak61/CUB_200_2011/datasets/cub200_cropped"
-  cp_prefix: 
+  checkpoint: "models/checkpoints"
+  cp_prefix: "resnet50cw_june15"
 
 optim:
   lr: 1e-3
   momentum: 0.9
   l2: 1e-5
+  lr_step: 30
+  lr_gamma: 0.2
 
 train:
+  print_freq: 5
   epochs: 20
   batch_size: 128

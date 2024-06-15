@@ -1,7 +1,12 @@
+# Python Related
 __pycache__/
+
+# Stored Models
 models/pretrained/
+models/checkpoints/
+
+# Testing Script
+testing.py
 
 logs/
 secrets.txt
-
-checkpoints/

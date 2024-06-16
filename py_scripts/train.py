@@ -27,6 +27,7 @@ def main():
     torch.cuda.manual_seed_all(config["seed"])
 
     # Creating the Model
+    # TODO: Make the model have 200 (or 199) output neurons instead of whatever it is now
     model = res50(pretrained_model=config["dir"]["model"])
 
 
@@ -92,6 +93,9 @@ def main():
     
     # Concept Loaders are the folders containing instances of a particular concept, across all classes
     # TODO: Make the concept loaders work, what is args.concepts?
+    # TODO: Add support for learned concepts. This can probably be done by adding a row to 
+    # the parquet with the same high level concept, but an "unk_k" token for low level
+    # concepts, where the k is the id of the particularl unknown concept
     concept_loaders = [
         torch.utils.data.DataLoader(
         datasets.ImageFolder(os.path.join(conceptdir_train, concept), transforms.Compose([
@@ -116,6 +120,7 @@ def main():
     for epoch in range(config["train"]["epochs"]):
         # Train and validate an epoch
         train_acc, train_dur = train(train_loader, concept_loaders, model, criterion, optimizer, epoch)
+        # TODO: add a concept trainer here if the epoch is a multiple of 10 or something?
         accs.append(validate(val_loader, model, criterion, epoch))
 
         # Learning Rate Scheduler Step. Every 30 epochs, lr /= 5

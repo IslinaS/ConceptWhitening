@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 from collections import OrderedDict
-from IterNorm import IterNormRotation as CWLayer
+from models.IterNorm import IterNormRotation as CWLayer
 
 """
 Code adapted from BBN.
@@ -217,19 +217,12 @@ class ResNet(nn.Module):
 
 
 def res50(
-    pretrain=False,
     pretrained_model=None,
-    last_layer_stride=2,
 ):
     resnet = ResNet(
         BottleNeck,
         [3, 4, 6, 3],
-        last_layer_stride=last_layer_stride,
+        last_layer_stride=2,
         pretrain_loc=pretrained_model
-    )
-
-    if pretrain and pretrained_model is not None:
-        resnet.load_model(pretrain=pretrained_model)
-
-
+    )    
     return resnet

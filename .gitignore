@@ -8,6 +8,10 @@ models/checkpoints/
 # Testing Script
 testing.py
 
+# Data Exploration Related
+data/notes.md
+data/eda
+
+# Misc
 logs/
 secrets.txt
-data/notes.md

@@ -4,7 +4,7 @@ verbose: True
 
 dirs:
   model: "models/pretrained/iNaturalist_180epoch_best.pth"
-  data: "/usr/xtmp/aak61/CUB_200_2011/datasets/cub200_cropped"
+  data: "/usr/xtmp/aak61/CUB_200_2011/datasets/cub200_cw"
   checkpoint: "models/checkpoints"
   cp_prefix: "resnet50cw_june15"
 

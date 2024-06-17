@@ -1,17 +1,21 @@
 import os
 import yaml
 import time
+import pandas as pd
+from PIL import ImageFile
 
 import torch
 import torch.nn as nn
 import torch.nn.parallel
 import torch.optim
-import torch.utils.data
+from torch.utils.data import DataLoader
+from torch.backends import cudnn
 import torchvision.transforms as transforms
 from torch.optim.lr_scheduler import StepLR
 import torchvision.datasets as datasets
-from PIL import ImageFile
 
+from data.datasets import BackboneDataset
+from data.datasets import CWDataset
 from models.ResNet50 import res50
 
 
@@ -25,6 +29,9 @@ def main():
     # Set the random seeds for reproducibility
     torch.manual_seed(config["seed"])
     torch.cuda.manual_seed_all(config["seed"])
+
+    # https://stackoverflow.com/questions/58961768/set-torch-backends-cudnn-benchmark-true-or-not
+    cudnn.benchmark = True
 
     # Creating the Model
     # TODO: Make the model have 200 (or 199) output neurons instead of whatever it is now
@@ -47,67 +54,40 @@ def main():
     # Data Loading
     # ============
     # Getting Data Directories
+    train_df = pd.read_parquet(os.path.join(config["dir"]["data"], "train.parquet"))
     traindir = os.path.join(config["dir"]["data"], "train")
-    valdir = os.path.join(config["dir"]["data"], "val")
+    # TODO: Validation split
+    test_df = pd.read_parquet(os.path.join(config["dir"]["data"], "test.parquet"))
     testdir = os.path.join(config["dir"]["data"], "test")
-    conceptdir_train = os.path.join(config["dir"]["data"], "concept_train")
-    conceptdir_test = os.path.join(config["dir"]["data"], "concept_test")
-
-    # Normalize transform, see if the backbone uses this...
-    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                 std=[0.229, 0.224, 0.225])
 
     # Tell PIL not to skip truncated images, just try its best to get the whole thing
     ImageFile.LOAD_TRUNCATED_IMAGES = True
 
-    # TODO: Structure data to make this work, also see if we really want the randomsizedcrop transform
-    train_loader = torch.utils.data.DataLoader(
-        datasets.ImageFolder(traindir, transforms.Compose([
-            transforms.RandomSizedCrop(224),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            normalize,
-        ])),
+    # TODO: path exists in annotations, so we dont need imagedir?
+    train_loader = DataLoader(
+        BackboneDataset(image_folder=traindir, annotations=train_df, 
+                        transform=transforms.Compose([
+                            transforms.ToTensor()
+                        ])),
         batch_size=config["train"]["batch_size"], 
-        shuffle=True)
+        shuffle=True,
+        num_workers=4)
 
-    val_loader = torch.utils.data.DataLoader(
-        datasets.ImageFolder(valdir, transforms.Compose([
-            transforms.Scale(256),
-            transforms.CenterCrop(224),
-            transforms.ToTensor(),
-            normalize,
-        ])),
+    test_loader = DataLoader(
+        BackboneDataset(image_folder=testdir, annotations=test_df, 
+                        transform=transforms.Compose([
+                            transforms.ToTensor()
+                        ])),
         batch_size=config["train"]["batch_size"], 
-        shuffle=True)
-
-    test_loader = torch.utils.data.DataLoader(
-        datasets.ImageFolder(testdir, transforms.Compose([
-            transforms.Scale(256),
-            transforms.CenterCrop(224),
-            transforms.ToTensor(),
-            normalize,
-        ])),
-        batch_size=config["train"]["batch_size"], 
-        shuffle=False)
+        shuffle=False,
+        num_workers=4)
     
     # Concept Loaders are the folders containing instances of a particular concept, across all classes
-    # TODO: Make the concept loaders work, what is args.concepts?
     # TODO: Add support for learned concepts. This can probably be done by adding a row to 
     # the parquet with the same high level concept, but an "unk_k" token for low level
     # concepts, where the k is the id of the particularl unknown concept
-    concept_loaders = [
-        torch.utils.data.DataLoader(
-        datasets.ImageFolder(os.path.join(conceptdir_train, concept), transforms.Compose([
-            transforms.RandomSizedCrop(224),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            normalize,
-        ])),
-        batch_size=config["train"]["batch_size"], 
-        shuffle=True)
-        for concept in args.concepts.split(',')
-    ]
+    concept_loaders = []
+    
 
     # =============
     # Training Loop

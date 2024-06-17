@@ -22,11 +22,20 @@ df = df[df["is_present"] == 1]  # Remove not present concepts
 df = df.drop(columns=["is_present", "temp"], axis=1)
 print(f"Initial df Read: {df.shape}")
 
+
 # Class Values
 class_path = os.path.join(cub_path, "image_class_labels.txt")
 classes = pd.read_csv(class_path, delim_whitespace=True, header=None, names=['image_id', 'class'])
 df = pd.merge(df, classes, on="image_id", how="left")
 print(f"Classes Made: {df.shape}")
+
+
+# Image Paths
+image_paths = os.path.join(cub_path, "images.txt")
+images = pd.read_csv(image_paths, delim_whitespace=True, header=None, names=['image_id', 'path'])
+df = pd.merge(df, images, on="image_id", how="left")
+print(f"Paths Added: {df.shape}")
+
 
 # Train test split values
 train_test_split = {}
@@ -53,6 +62,9 @@ with open(low_path, "r") as file:
 df['low_level'] = df['attribute_id'].map(low_level)
 df = df.drop(columns=['attribute_id'])
 print(f"Low Level Concepts Made: {df.shape}")
+rev = {value:key for key, value in low_level.items()}
+with open("low_level.json", 'w') as json_file:
+    json.dump(rev, json_file, indent=4)
 
 # Low to High level concept mapping
 mapping_path = os.path.abspath("mappings.json")
@@ -68,13 +80,21 @@ with open(high_path, "r") as file:
     for line in file:
         vals = line.split(" ")
         concept_id = int(vals[0])
-        concept = vals[1].strip()
+        concept = vals[1:]
+        # Sometimes concepts are left/right. This merges them into one high level part
+        if len(concept) > 1:
+            concept = concept[1]
+        else:
+            concept = concept[0]
+        concept = concept.strip()
         high_level[concept_id] = concept
+with open("high_level.json", 'w') as json_file:
+    json.dump(high_level, json_file, indent=4)
 
 # High Level Locations
 # Redact handles out of bounds values, so for now the coords can be out of bounds
-BOX_HEIGHT = 50
-BOX_WIDTH = 50
+BOX_HEIGHT = 80
+BOX_WIDTH = 80
 concept_locs = {}
 part_path = os.path.join(cub_path, "parts/part_locs.txt")
 with open(part_path, "r") as file:
@@ -94,16 +114,41 @@ with open(part_path, "r") as file:
             concept_locs[img_id] = []
         concept_locs[img_id].append({"part_id": part_id, "coords": coords})
 rows = []
+print(len(concept_locs))
 for img_id, entries in concept_locs.items():
     for entry in entries:
         rows.append({'image_id': img_id, 'high_level': entry['part_id'], 'coords': entry['coords']})
 locs_df = pd.DataFrame(rows)
 df = pd.merge(df, locs_df, on=['image_id', 'high_level'], how='left')
-t= df[df["coords"].isna()]
-df.loc[df['high_level'] == 'general', 'coords'] = pd.Series([[-1.0, -1.0, 999.0, 999.0]] * len(df[df['high_level'] == 'general']))  # Set general to be the whole image
-print(f"Coord Mappings Made: {df.shape}")
 df = df[df["coords"].notna()]
-print(f"Final df Shape: {df.shape}")
+
+# Set general to be the whole image
+mask = df['high_level'] == 'general'
+num_rows = mask.sum() 
+coords_series = pd.Series([[-9999.0, -9999.0, 9999.0, 9999.0]] * num_rows, dtype=object)
+df.loc[mask, 'coords'] = coords_series
+
+print(f"Coord Mappings Made: {df.shape}")
+
+
+# Add Bounding Boxes for Crop
+image_bboxes = {}
+bbox_path = os.path.join(cub_path, "bounding_boxes.txt")
+with open(bbox_path, "r") as file:
+    for line in file:
+        vals = line.split(" ")
+        img_id = int(vals[0])
+        x = float(vals[1])
+        y = float(vals[2])
+        width = float(vals[3])
+        height = float(vals[4])
+        bbox = [x, y, width, height]
+        if img_id not in image_bboxes:
+            image_bboxes[img_id] = bbox
+bbox_df = pd.DataFrame(list(image_bboxes.items()), columns=['image_id', 'bbox'])
+df = pd.merge(df, bbox_df, on=['image_id'], how='left')
+print(f"BBoxes Made: {df.shape}")
+
 
 # Save the train and test dfs
 train_path = os.path.join(cub_path, "datasets/cub200_cw/train.parquet")

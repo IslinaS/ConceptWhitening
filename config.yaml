@@ -3,7 +3,7 @@ ngpu: 4
 verbose: True
 
 dirs:
-  model: "models/pretrained/iNaturalist_180epoch_best.pth"
+  model: "models/pretrained/iNaturalist2018_res50_180epoch.pth"
   data: "/usr/xtmp/aak61/CUB_200_2011/datasets/cub200_cw"
   checkpoint: "models/checkpoints"
   cp_prefix: "resnet50cw_june15"
@@ -11,13 +11,13 @@ dirs:
   low_dict: "data/low_level.json"
 
 optim:
-  lr: 1e-3
+  lr: 0.001
   momentum: 0.9
-  l2: 1e-5
+  l2: 0.00001
   lr_step: 30
   lr_gamma: 0.2
 
 train:
-  print_freq: 5
+  print_freq: 1
   epochs: 20
   batch_size: 128

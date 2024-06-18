@@ -5,7 +5,7 @@ __pycache__/
 models/pretrained/
 models/checkpoints/
 
-# Testing Script
+# Testing Script and Slurm
 testing.py
 
 # Data Exploration Related

@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import yaml
 import time
@@ -15,6 +16,7 @@ from torch.backends import cudnn
 import torchvision.transforms as transforms
 from torch.optim.lr_scheduler import StepLR
 
+sys.path.insert(1, "/home/users/aak61/CS474/ConceptWhitening")
 from data.datasets import BackboneDataset
 from data.datasets import CWDataset
 from models.ResNet50 import res50
@@ -35,8 +37,9 @@ def main():
     cudnn.benchmark = True
 
     # Creating the Model
-    # TODO: Make the model have 200 (or 199) output neurons instead of whatever it is now
-    model = res50(pretrained_model=config["dir"]["model"])
+    model = res50(pretrained_model=config["dirs"]["model"])
+
+    print(type(config['optim']['lr']))
 
 
     # Defining Loss and Optimizer
@@ -55,8 +58,8 @@ def main():
     # Data Loading
     # ============
     # Getting Data Directories
-    train_df = pd.read_parquet(os.path.join(config["dir"]["data"], "train.parquet"))
-    test_df = pd.read_parquet(os.path.join(config["dir"]["data"], "test.parquet"))
+    train_df = pd.read_parquet(os.path.join(config["dirs"]["data"], "train.parquet"))
+    test_df = pd.read_parquet(os.path.join(config["dirs"]["data"], "test.parquet"))
     train_df, val_df = train_test_split(train_df, test_size=len(test_df), random_state=config["seed"])  # Ensuring reproducibility
 
     # Tell PIL not to skip truncated images, just try its best to get the whole thing
@@ -106,7 +109,7 @@ def main():
     )
 
     # Concept
-    concepts = CWDataset(train_df, high_level, low_level, 
+    concepts = CWDataset(train_df, high_level, low_level, n_free=0, 
                         transform=transforms.Compose([
                             transforms.ToTensor()
                         ]))
@@ -128,9 +131,9 @@ def main():
     accs = []
     for epoch in range(config["train"]["epochs"]):
         # Train and validate an epoch
-        train_loss, train_acc, train_dur = train(train_loader, concept_loader, concepts, model, criterion, optimizer, epoch)
+        train_loss, train_acc, train_dur = train(train_loader, concept_loader, concepts, model, criterion, optimizer)
         # TODO: add a concept trainer here if the epoch is a multiple of 10 or something?
-        accs.append(validate(val_loader, model, criterion, epoch)[1])
+        accs.append(validate(val_loader, model, criterion)[1])
 
         # Learning Rate Scheduler Step. Every 30 epochs, lr /= 5
         scheduler.step()
@@ -152,9 +155,9 @@ def main():
                         })
 
         if (config["verbose"]) and ((epoch + 1) % config["train"]["print_freq"] == 0):
-            print(f"Epoch {epoch + 1} Complete")
-            print(f"\tDuration: {train_dur:.2f}s\n\tTrain Accuracy: {train_acc:.4f}")
-            print(f"Val Accuracy: {accs[-1]:.4f}, Was Best? {is_best}")
+            print(f"Epoch {epoch + 1} Complete", flush=True)
+            print(f"\tDuration: {train_dur:.2f}s\n\tTrain Accuracy: {train_acc:.4f}", flush=True)
+            print(f"Val Accuracy: {accs[-1]:.4f}, Was Best? {is_best}", flush=True)
 
     # Load the best model before validating
     model.load_model(best_path)
@@ -174,7 +177,9 @@ def train(train_loader, concept_loader, concept_dataset, model, criterion, optim
     for i, (input, target) in enumerate(train_loader):
         # Every 30 epochs, update CW layers?
         # TODO: See if this is right. i is the batch index, NOT epoch
-        if (i + 1) % 30 == 0:
+        # BUG: This is important, target is offset by 1 in CUB
+        target = target - 1 
+        if (i + 1) % 1000000000 == 0:
             model.eval()
             with torch.no_grad():
                 # Update the gradient matrix G for the CW layers
@@ -212,20 +217,22 @@ def train(train_loader, concept_loader, concept_dataset, model, criterion, optim
         
     end = time.time()
     avg_loss = total_loss / len(train_loader)
-    acc = total_correct / len(train_loader)
+    acc = total_correct / len(train_loader.dataset)
 
     return avg_loss, acc, end - start
   
 
-def validate(val_loader, model, criterion):
+def validate(dataloader, model, criterion):
     """
-    Validation forward passes for the current model
+    Grad free forward passes for the current model
     """
     model.eval()
     total_loss = 0
     total_correct = 0
     with torch.no_grad():
-        for input, target in val_loader:
+        for input, target in dataloader:
+            # BUG: This is important, target is offset by 1 in CUB
+            target = target - 1 
             # Move input and target to GPUs
             target = target.cuda()
             input = input.cuda()
@@ -238,9 +245,37 @@ def validate(val_loader, model, criterion):
             total_loss += loss.item()
             total_correct += correct(output, target, k=1)
     
-    avg_loss = total_loss / len(val_loader)
-    acc = total_correct / len(val_loader)
+    avg_loss = total_loss / len(dataloader)
+    acc = total_correct / len(dataloader.dataset)
     return avg_loss, acc
+
+
+def save_checkpoint(state):
+    """
+    Save the model in a compatible format with the ResNet50 load_model method
+
+    Params:
+    -------
+    - state (dict): dictionary with keys [epoch, acc, state_dict]
+
+    Returns:
+    --------
+    - path (str): Path to file
+    """
+    path = os.path.join(config["dirs"]["checkpoint"], 
+                        f"{config['dirs']['cp_prefix']}_epoch{state['epoch']}_acc{state['acc']}.pth")
+    torch.save(state["state_dict"], path)
+    return path
+
+
+def correct(output, target, k=1):
+    """
+    See how many predictions were in the top k predicted classes.
+    Assumes target is already adjusted to be -1 for CUB
+    """
+    _, predicted_topk = torch.topk(output, k, dim=1)
+    correct_topk = (predicted_topk == target.unsqueeze(1)).sum().item()
+    return correct_topk
 
 
 def get_config(path):
@@ -258,35 +293,6 @@ def get_config(path):
     with open(path, 'r') as file:
         config = yaml.safe_load(file)
     return config
-
-
-def save_checkpoint(state):
-    """
-    Save the model in a compatible format with the ResNet50 load_model method
-
-    Params:
-    -------
-    - state (dict): dictionary with keys [epoch, acc, state_dict]
-
-    Returns:
-    --------
-    - path (str): Path to file
-    """
-    path = os.path.join(config["dir"]["checkpoint"], 
-                        f"{config["dir"]["cp_prefix"]}_epoch{state["epoch"]}_acc{state["acc"]}.pth")
-    torch.save(state["state_dict"], path)
-    return path
-
-
-def correct(output, target, k=1):
-    """
-    See how many predictions were in the top k predicted classes
-    """
-    # This subtract 1 is important since cub has classes 1-200 not 0-199
-    target_adjusted = target - 1
-    _, predicted_topk = torch.topk(output, k, dim=1)
-    correct_topk = (predicted_topk == target_adjusted.unsqueeze(1)).sum().item()
-    return correct_topk
 
 
 if __name__ == '__main__':

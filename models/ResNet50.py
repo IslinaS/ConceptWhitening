@@ -43,15 +43,15 @@ class BottleNeck(nn.Module):
     def forward(self, x, region=None, orig_x_dim=None):
         # The isinstance see if we are passing to a CWLayer. If we are, send the region
         out = self.conv1(x)
-        out = self.bn1(out, region=region, orig_x_dim=orig_x_dim) if isinstance(self.bn1, CWLayer) else self.bn1(out)
+        out = self.bn1(out, X_redact_coords=region, orig_x_dim=orig_x_dim) if isinstance(self.bn1, CWLayer) else self.bn1(out)
         out = self.relu1(out)
 
         out = self.conv2(out)
-        out = self.bn2(out, region=region, orig_x_dim=orig_x_dim) if isinstance(self.bn2, CWLayer) else self.bn2(out)
+        out = self.bn2(out, X_redact_coords=region, orig_x_dim=orig_x_dim) if isinstance(self.bn2, CWLayer) else self.bn2(out)
         out = self.relu2(out)
 
         out = self.conv3(out)
-        out = self.bn3(out, region=region, orig_x_dim=orig_x_dim) if isinstance(self.bn3, CWLayer) else self.bn3(out)
+        out = self.bn3(out, X_redact_coords=region, orig_x_dim=orig_x_dim) if isinstance(self.bn3, CWLayer) else self.bn3(out)
 
         if self.downsample is not None:
             residual = self.downsample(x)

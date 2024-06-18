@@ -1,8 +1,10 @@
 import os
+import json
 import yaml
 import time
 import pandas as pd
 from PIL import ImageFile
+from sklearn.model_selection import train_test_split
 
 import torch
 import torch.nn as nn
@@ -12,7 +14,6 @@ from torch.utils.data import DataLoader
 from torch.backends import cudnn
 import torchvision.transforms as transforms
 from torch.optim.lr_scheduler import StepLR
-import torchvision.datasets as datasets
 
 from data.datasets import BackboneDataset
 from data.datasets import CWDataset
@@ -55,38 +56,66 @@ def main():
     # ============
     # Getting Data Directories
     train_df = pd.read_parquet(os.path.join(config["dir"]["data"], "train.parquet"))
-    traindir = os.path.join(config["dir"]["data"], "train")
-    # TODO: Validation split
     test_df = pd.read_parquet(os.path.join(config["dir"]["data"], "test.parquet"))
-    testdir = os.path.join(config["dir"]["data"], "test")
+    train_df, val_df = train_test_split(train_df, test_size=len(test_df), random_state=config["seed"])  # Ensuring reproducibility
 
     # Tell PIL not to skip truncated images, just try its best to get the whole thing
     ImageFile.LOAD_TRUNCATED_IMAGES = True
 
-    # TODO: path exists in annotations, so we dont need imagedir?
+    # Load the low and high level concept dictionaries
+    low_path = os.path.abspath(config["dirs"]["low_dict"])
+    high_path = os.path.abspath(config["dirs"]["high_dict"])
+    with open(low_path, "r") as file:
+        low_level = json.load(file)
+    with open(high_path, "r") as file:
+        high_level = json.load(file)
+
+    # Make the backbone and concept loaders
+    # Only need a concept loader for the train set
+    # Train
     train_loader = DataLoader(
-        BackboneDataset(image_folder=traindir, annotations=train_df, 
+        BackboneDataset(annotations=train_df, 
                         transform=transforms.Compose([
                             transforms.ToTensor()
                         ])),
         batch_size=config["train"]["batch_size"], 
         shuffle=True,
-        num_workers=4)
+        num_workers=4
+    )
 
-    test_loader = DataLoader(
-        BackboneDataset(image_folder=testdir, annotations=test_df, 
+    # Validation
+    val_loader = DataLoader(
+        BackboneDataset(annotations=val_df, 
                         transform=transforms.Compose([
                             transforms.ToTensor()
                         ])),
         batch_size=config["train"]["batch_size"], 
         shuffle=False,
-        num_workers=4)
-    
-    # Concept Loaders are the folders containing instances of a particular concept, across all classes
-    # TODO: Add support for learned concepts. This can probably be done by adding a row to 
-    # the parquet with the same high level concept, but an "unk_k" token for low level
-    # concepts, where the k is the id of the particularl unknown concept
-    concept_loaders = []
+        num_workers=4
+    )
+
+    # Test
+    test_loader = DataLoader(
+        BackboneDataset(annotations=test_df, 
+                        transform=transforms.Compose([
+                            transforms.ToTensor()
+                        ])),
+        batch_size=config["train"]["batch_size"], 
+        shuffle=False,
+        num_workers=4
+    )
+
+    # Concept
+    concepts = CWDataset(train_df, high_level, low_level, 
+                        transform=transforms.Compose([
+                            transforms.ToTensor()
+                        ]))
+    concept_loader = DataLoader(
+        concepts,
+        batch_size=config["train"]["batch_size"], 
+        shuffle=True,
+        num_workers=4
+    )
     
 
     # =============
@@ -99,9 +128,9 @@ def main():
     accs = []
     for epoch in range(config["train"]["epochs"]):
         # Train and validate an epoch
-        train_acc, train_dur = train(train_loader, concept_loaders, model, criterion, optimizer, epoch)
+        train_loss, train_acc, train_dur = train(train_loader, concept_loader, concepts, model, criterion, optimizer, epoch)
         # TODO: add a concept trainer here if the epoch is a multiple of 10 or something?
-        accs.append(validate(val_loader, model, criterion, epoch))
+        accs.append(validate(val_loader, model, criterion, epoch)[1])
 
         # Learning Rate Scheduler Step. Every 30 epochs, lr /= 5
         scheduler.step()
@@ -134,12 +163,13 @@ def main():
         print(f"Training Completed. Final Accuracy: {val_acc:.4f}")
 
 
-def train(train_loader, concept_loaders, model, criterion, optimizer):
+def train(train_loader, concept_loader, concept_dataset, model, criterion, optimizer):
     """
     Trains the model for one epoch
     """
     start = time.time()
     total_loss = 0
+    total_correct = 0
     model.train()
     for i, (input, target) in enumerate(train_loader):
         # Every 30 epochs, update CW layers?
@@ -148,13 +178,13 @@ def train(train_loader, concept_loaders, model, criterion, optimizer):
             model.eval()
             with torch.no_grad():
                 # Update the gradient matrix G for the CW layers
-                for concept_index, concept_loader in enumerate(concept_loaders):
-                    # Setting the mode tells the model what concept should be activated right now
-                    # i.e. Mode 0: pointy beak, 1: curved beak, ...
-                    model.change_mode(concept_index)
-                    for batch, _ in concept_loader:
+                for i in range(1, concept_dataset.n_concepts + 1):
+                    concept_dataset.set_mode(i)
+                    model.change_mode(i)
+                    for batch, region in concept_loader:
                         batch = batch.cuda()
-                        model(batch)
+                        # batch.shape[2] gives the original x dimension
+                        model(batch, region, batch.shape[2])
                         # Only do one batch -- why??
                         break
                 model.update_rotation_matrix()
@@ -170,7 +200,10 @@ def train(train_loader, concept_loaders, model, criterion, optimizer):
         # Forward pass + loss computation
         output = model(input)
         loss = criterion(output, target)
+
+        # Performance Metrics
         total_loss += loss.item()
+        total_correct += correct(output, target)
         
         # Compute gradient and do SGD step
         optimizer.zero_grad()
@@ -178,10 +211,10 @@ def train(train_loader, concept_loaders, model, criterion, optimizer):
         optimizer.step()
         
     end = time.time()
-    # TODO: replace this with accuracy
     avg_loss = total_loss / len(train_loader)
+    acc = total_correct / len(train_loader)
 
-    return avg_loss, end - start
+    return avg_loss, acc, end - start
   
 
 def validate(val_loader, model, criterion):
@@ -190,6 +223,7 @@ def validate(val_loader, model, criterion):
     """
     model.eval()
     total_loss = 0
+    total_correct = 0
     with torch.no_grad():
         for input, target in val_loader:
             # Move input and target to GPUs
@@ -199,11 +233,14 @@ def validate(val_loader, model, criterion):
             # Forward Pass
             output = model(input)
             loss = criterion(output, target)
+
+            # Performance Metrics
             total_loss += loss.item()
+            total_correct += correct(output, target, k=1)
     
-    # TODO: make this accuracy
     avg_loss = total_loss / len(val_loader)
-    return avg_loss
+    acc = total_correct / len(val_loader)
+    return avg_loss, acc
 
 
 def get_config(path):
@@ -241,24 +278,15 @@ def save_checkpoint(state):
     return path
 
 
-# This function computes the accuracy of the top k classes
-# i.e. maybe pred != target, but the second highest prediction was the target
-# So you're if you had top2 acc, this would be marked as a correct 
-def accuracy(output, target, topk=(1,)):
-    # TODO: make this work
-    """Computes the precision@k for the specified values of k"""
-    maxk = max(topk)
-    batch_size = target.size(0)
-
-    _, pred = output.topk(maxk, 1, True, True)
-    pred = pred.t()
-    correct = pred.eq(target.view(1, -1).expand_as(pred))
-
-    res = []
-    for k in topk:
-        correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
-        res.append(correct_k.mul_(100.0 / batch_size))
-    return res
+def correct(output, target, k=1):
+    """
+    See how many predictions were in the top k predicted classes
+    """
+    # This subtract 1 is important since cub has classes 1-200 not 0-199
+    target_adjusted = target - 1
+    _, predicted_topk = torch.topk(output, k, dim=1)
+    correct_topk = (predicted_topk == target_adjusted.unsqueeze(1)).sum().item()
+    return correct_topk
 
 
 if __name__ == '__main__':

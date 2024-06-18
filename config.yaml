@@ -7,6 +7,8 @@ dirs:
   data: "/usr/xtmp/aak61/CUB_200_2011/datasets/cub200_cw"
   checkpoint: "models/checkpoints"
   cp_prefix: "resnet50cw_june15"
+  high_dict: "data/high_level.json"
+  low_dict: "data/low_level.json"
 
 optim:
   lr: 1e-3

@@ -39,9 +39,6 @@ def main():
     # Creating the Model
     model = res50(pretrained_model=config["dirs"]["model"])
 
-    print(type(config['optim']['lr']))
-
-
     # Defining Loss and Optimizer
     criterion = nn.CrossEntropyLoss().cuda()
     # TODO: Other optimizers?
@@ -179,7 +176,7 @@ def train(train_loader, concept_loader, concept_dataset, model, criterion, optim
         # TODO: See if this is right. i is the batch index, NOT epoch
         # BUG: This is important, target is offset by 1 in CUB
         target = target - 1 
-        if (i + 1) % 1000000000 == 0:
+        if (i + 1) % 30 == 0:
             model.eval()
             with torch.no_grad():
                 # Update the gradient matrix G for the CW layers

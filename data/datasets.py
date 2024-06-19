@@ -48,8 +48,9 @@ class CWDataset(Dataset):
 
         This dataset supports filtering for a specific concept via the set_mode method.
         """
-        # Data itself
+        # Data itself. We make sure we only have original and unaugmented images
         self.annotations = annotations.copy()
+        self.annotations = self.annotations[self.annotations["augment"] == 0]
 
         # Used to create unknown concepts
         self.high_level = high_level

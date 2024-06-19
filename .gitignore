@@ -10,7 +10,7 @@ testing.py
 
 # Data Exploration Related
 data/notes.md
-data/eda
+data/eda.ipynb
 
 # Misc
 logs/

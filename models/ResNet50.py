@@ -73,7 +73,8 @@ class ResNet(nn.Module):
         last_layer_stride=2,
         whitened_layers=[[0], [0], [0], [0]],
         cw_lambda=0.1,
-        pretrain_loc=None
+        pretrain_loc=None,
+        vanilla_pretrain=True
     ):
         super(ResNet, self).__init__()
         self.inplanes = 64
@@ -99,7 +100,7 @@ class ResNet(nn.Module):
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512 * block_type.expansion, num_classes)
 
-        if pretrain_loc is not None:
+        if pretrain_loc and vanilla_pretrain:
             self.load_model(pretrain=pretrain_loc)
 
         # The architecture is structured as [3, 4, 6, 4], stored in num_blocks
@@ -113,6 +114,9 @@ class ResNet(nn.Module):
                 new_cw_layer = CWLayer(self.BN_DIM[i], activation_mode="pool_max", lamb=cw_lambda)
                 self.layers[i][whitened_layer].bn1 = new_cw_layer
                 self.cw_layers.append(new_cw_layer)
+
+        if (pretrain_loc):
+            self.load_model(pretrain=pretrain_loc)
 
     def change_mode(self, mode):
         """
@@ -184,11 +188,13 @@ class ResNet(nn.Module):
 
 def res50(
     pretrained_model=None,
+    vanilla_pretrain=False
 ):
     resnet = ResNet(
         BottleNeck,
         [3, 4, 6, 3],
         last_layer_stride=2,
-        pretrain_loc=pretrained_model
+        pretrain_loc=pretrained_model,
+        vanilla_pretrain=vanilla_pretrain
     )    
     return resnet

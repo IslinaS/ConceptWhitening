@@ -3,12 +3,12 @@ ngpu: 4
 verbose: True
 
 dirs:
-  model: "models/pretrained/iNaturalist2018_res50_180epoch.pth"
+  model: "models/checkpoints/resnet50cw_june15_epoch20_acc0.49299041855774084.pth"
   data: "/usr/xtmp/aak61/CUB_200_2011/datasets/cub200_cw"
   checkpoint: "models/checkpoints"
-  cp_prefix: "resnet50cw_june15"
-  high_dict: "data/high_level.json"
-  low_dict: "data/low_level.json"
+  cp_prefix: "resnet50cw_june17"
+  high_dict: "data/json_files/high_level.json"
+  low_dict: "data/json_files/low_level.json"
 
 optim:
   lr: 0.001
@@ -19,5 +19,5 @@ optim:
 
 train:
   print_freq: 1
-  epochs: 20
+  epochs: 1
   batch_size: 128

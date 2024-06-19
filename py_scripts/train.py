@@ -27,7 +27,8 @@ def main():
     # This is the only global variable
     global config
     conf_path = "config.yaml"
-    config = get_config(conf_path)
+    with open(conf_path, 'r') as file:
+        config = yaml.safe_load(file)
 
     # Set the random seeds for reproducibility
     torch.manual_seed(config["seed"])
@@ -36,7 +37,7 @@ def main():
     # https://stackoverflow.com/questions/58961768/set-torch-backends-cudnn-benchmark-true-or-not
     cudnn.benchmark = True
 
-    # Creating the Model
+    # Creating the Model. If you are using the default backbone, make sure to set vanilla pretrain
     model = res50(pretrained_model=config["dirs"]["model"])
 
     # Defining Loss and Optimizer
@@ -157,8 +158,8 @@ def main():
             print(f"Val Accuracy: {accs[-1]:.4f}, Was Best? {is_best}", flush=True)
 
     # Load the best model before validating
-    model.load_model(best_path)
-    val_acc = validate(test_loader, model, criterion, epoch)
+    model.module.load_model(best_path)
+    val_loss, val_acc = validate(test_loader, model, criterion)
     if config["verbose"]:
         print(f"Training Completed. Final Accuracy: {val_acc:.4f}")
 
@@ -176,13 +177,13 @@ def train(train_loader, concept_loader, concept_dataset, model, criterion, optim
         # TODO: See if this is right. i is the batch index, NOT epoch
         # BUG: This is important, target is offset by 1 in CUB
         target = target - 1 
-        if (i + 1) % 30 == 0:
+        if (i + 1) % 20 == 0:
             model.eval()
             with torch.no_grad():
                 # Update the gradient matrix G for the CW layers
                 for i in range(1, concept_dataset.n_concepts + 1):
                     concept_dataset.set_mode(i)
-                    model.change_mode(i)
+                    model.module.change_mode(i)
                     for batch, region in concept_loader:
                         batch = batch.cuda()
                         # batch.shape[2] gives the original x dimension
@@ -192,7 +193,7 @@ def train(train_loader, concept_loader, concept_dataset, model, criterion, optim
                 model.update_rotation_matrix()
                 # Stop computing the gradient for CW w/ mode=-1
                 # -1 is the default mode that skips gradient computation
-                model.change_mode(-1)
+                model.module.change_mode(-1)
             model.train()
         
         # Move them to CUDA, assumes CUDA access
@@ -260,7 +261,7 @@ def save_checkpoint(state):
     - path (str): Path to file
     """
     path = os.path.join(config["dirs"]["checkpoint"], 
-                        f"{config['dirs']['cp_prefix']}_epoch{state['epoch']}_acc{state['acc']}.pth")
+                        f"{config['dirs']['cp_prefix']}_epoch{state['epoch']}_acc{state['acc']:.3f}.pth")
     torch.save(state["state_dict"], path)
     return path
 
@@ -273,23 +274,6 @@ def correct(output, target, k=1):
     _, predicted_topk = torch.topk(output, k, dim=1)
     correct_topk = (predicted_topk == target.unsqueeze(1)).sum().item()
     return correct_topk
-
-
-def get_config(path):
-    """
-    Opens the config file
-
-    Params:
-    -------
-    - path (str): File path to load from
-
-    Returns:
-    --------
-    - config (dict): Config parameters set in config.yaml
-    """
-    with open(path, 'r') as file:
-        config = yaml.safe_load(file)
-    return config
 
 
 if __name__ == '__main__':

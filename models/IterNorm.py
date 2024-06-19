@@ -4,6 +4,7 @@ Reference:  Iterative Normalization: Beyond Standardization towards Efficient Wh
 - Paper:
 - Code: https://github.com/huangleiBuaa/IterNorm
 """
+import torch
 import torch.nn
 import torch.nn.functional as F
 from torch.nn import Parameter
@@ -215,7 +216,7 @@ class IterNormRotation(torch.nn.Module):
             # When mode >= 0, the mode-th column of gradient matrix is accumulated
             # Throughout this code, g = 1, d = dimensionality of latent space, self.mode = index of current concept
             if self.mode >= 0:
-                X_redact_coords = X_redact_coords.view(-1, size_R[0], 4)  # size_R[0] = g = 1
+                #X_redact_coords = X_redact_coords.view(-1, size_R[0], 4)  # size_R[0] = g = 1
                 X_redacted = redact(X_hat, X_redact_coords, orig_x_dim)
 
                 # Applying the concept activation function
@@ -251,6 +252,7 @@ class IterNormRotation(torch.nn.Module):
                     # bgd
                     X_activated = (X_redacted * maxpool_bool).sum((3, 4)) / maxpool_bool.sum((3, 4))
 
+                # TODO: What is concept_mat? Is .size() the amount of low level concepts?
                 # Calculating the projections onto higher level concept subspaces
                 size_C = self.concept_mat.size()
                 concept_mask = (

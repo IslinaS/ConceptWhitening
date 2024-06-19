@@ -1,7 +1,8 @@
 import os
 import json
 
-# This file matches the low level concepts to high level ones. These are manually assigned.
+# This file is used to manually match low to high level concepts.
+# They're saved to mappings.json
 
 def read_low_level(file_path):
     """

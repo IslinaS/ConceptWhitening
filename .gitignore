@@ -2,6 +2,7 @@
 __pycache__/
 __init__.py
 .venv
+.flake8
 
 # Stored Models
 models/pretrained/

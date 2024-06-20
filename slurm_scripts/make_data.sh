@@ -6,6 +6,7 @@
 #SBATCH --mem=160gb                   # Job memory request
 #SBATCH --time=96:00:00               # Time limit hrs:min:sec
 #SBATCH --partition=compsci-gpu
-#SBATCH --gres=gpu:4
+#SBATCH --gres=gpu:0 
 
-python3 py_scripts/train.py
+source secrets.txt
+python3 data/make_labels.py

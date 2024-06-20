@@ -1,17 +1,15 @@
 import torch
-import numpy as np
 
 
 def redact(latent_img_batch, coords, orig_x_dim, orig_y_dim=0):
     """
     Takes a latent image batch and returns a redacted version for each image based on provided coordinates.
-    It is assumed the latent image is encoded via convolutions and pooling.
-    To 'redact', all latent pixels that aren't directly related to the region of interest are set to 0.
+    Assumes all tensors are on GPU.
 
     Parameters:
     - latent_img_batch (torch.Tensor - batch_size x latent_dim x height x width): Batch of latent images to be modified
     - coords (torch.Tensor - batch_size x 4): Tensor containing x1, y1, x2, y2 for each image
-    - orig_x_dim, orig_y_dim (int): Dimensions of the original image. Can leave y_dim empty if image is square
+    - orig_x_dim, orig_y_dim (int): Dimensions of the original image. If y_dim is zero, assumes square image.
 
     Returns:
     - redacted_latent_img (torch.Tensor - batch_size x latent_dim x height x width):
@@ -26,10 +24,10 @@ def redact(latent_img_batch, coords, orig_x_dim, orig_y_dim=0):
     for i in range(latent_img_batch.size(0)):
         x1, y1, x2, y2 = coords[i]
 
-        min_latent_x = int(np.ceil((x1 / orig_x_dim) * latent_x_dim))
-        min_latent_y = int(np.ceil((y1 / orig_y_dim) * latent_y_dim))
-        max_latent_x = int(np.floor((x2 / orig_x_dim) * latent_x_dim))
-        max_latent_y = int(np.floor((y2 / orig_y_dim) * latent_y_dim))
+        min_latent_x = int(torch.ceil((x1 / orig_x_dim) * latent_x_dim))
+        min_latent_y = int(torch.ceil((y1 / orig_y_dim) * latent_y_dim))
+        max_latent_x = int(torch.floor((x2 / orig_x_dim) * latent_x_dim))
+        max_latent_y = int(torch.floor((y2 / orig_y_dim) * latent_y_dim))
 
         # Ensuring the region is not out of bounds due to flooring and ceiling operations
         min_latent_x = max(min_latent_x, 0)

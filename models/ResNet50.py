@@ -8,6 +8,7 @@ from models.IterNorm import IterNormRotation as CWLayer
 Code adapted from BBN.
 """
 
+
 class BottleNeck(nn.Module):
     expansion = 4
 
@@ -39,19 +40,22 @@ class BottleNeck(nn.Module):
         else:
             self.downsample = None
         self.relu = nn.ReLU(True)
-    
+
     def forward(self, x, region=None, orig_x_dim=None):
         # The isinstance see if we are passing to a CWLayer. If we are, send the region
         out = self.conv1(x)
-        out = self.bn1(out, X_redact_coords=region, orig_x_dim=orig_x_dim) if isinstance(self.bn1, CWLayer) else self.bn1(out)
+        out = (self.bn1(out, X_redact_coords=region, orig_x_dim=orig_x_dim)
+               if isinstance(self.bn1, CWLayer) else self.bn1(out))
         out = self.relu1(out)
 
         out = self.conv2(out)
-        out = self.bn2(out, X_redact_coords=region, orig_x_dim=orig_x_dim) if isinstance(self.bn2, CWLayer) else self.bn2(out)
+        out = (self.bn2(out, X_redact_coords=region, orig_x_dim=orig_x_dim)
+               if isinstance(self.bn2, CWLayer) else self.bn2(out))
         out = self.relu2(out)
 
         out = self.conv3(out)
-        out = self.bn3(out, X_redact_coords=region, orig_x_dim=orig_x_dim) if isinstance(self.bn3, CWLayer) else self.bn3(out)
+        out = (self.bn3(out, X_redact_coords=region, orig_x_dim=orig_x_dim)
+               if isinstance(self.bn3, CWLayer) else self.bn3(out))
 
         if self.downsample is not None:
             residual = self.downsample(x)
@@ -73,7 +77,8 @@ class ResNet(nn.Module):
         last_layer_stride=2,
         whitened_layers=[[0], [0], [0], [0]],
         cw_lambda=0.1,
-        pretrain_loc=None
+        pretrain_loc=None,
+        vanilla_pretrain=True
     ):
         super(ResNet, self).__init__()
         self.inplanes = 64
@@ -99,7 +104,7 @@ class ResNet(nn.Module):
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512 * block_type.expansion, num_classes)
 
-        if pretrain_loc is not None:
+        if pretrain_loc and vanilla_pretrain:
             self.load_model(pretrain=pretrain_loc)
 
         # The architecture is structured as [3, 4, 6, 4], stored in num_blocks
@@ -113,6 +118,9 @@ class ResNet(nn.Module):
                 new_cw_layer = CWLayer(self.BN_DIM[i], activation_mode="pool_max", lamb=cw_lambda)
                 self.layers[i][whitened_layer].bn1 = new_cw_layer
                 self.cw_layers.append(new_cw_layer)
+
+        if pretrain_loc:
+            self.load_model(pretrain=pretrain_loc)
 
     def change_mode(self, mode):
         """
@@ -182,13 +190,13 @@ class ResNet(nn.Module):
         return out
 
 
-def res50(
-    pretrained_model=None,
-):
-    resnet = ResNet(
+def res50(whitened_layers, cw_lambda, pretrained_model=None, vanilla_pretrain=False):
+    return ResNet(
         BottleNeck,
         [3, 4, 6, 3],
         last_layer_stride=2,
-        pretrain_loc=pretrained_model
-    )    
-    return resnet
+        whitened_layers=whitened_layers,
+        cw_lambda=cw_lambda,
+        pretrain_loc=pretrained_model,
+        vanilla_pretrain=vanilla_pretrain
+    )

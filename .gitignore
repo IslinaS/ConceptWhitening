@@ -1,5 +1,6 @@
 # Python Related
 __pycache__/
+__init__.py
 
 # Stored Models
 models/pretrained/
@@ -10,7 +11,7 @@ testing.py
 
 # Data Exploration Related
 data/notes.md
-data/eda
+data/eda.ipynb
 
 # Misc
 logs/

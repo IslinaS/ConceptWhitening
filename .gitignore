@@ -1,6 +1,5 @@
 # Python Related
 __pycache__/
-__init__.py
 .venv
 .flake8
 

@@ -9,4 +9,5 @@
 #SBATCH --gres=gpu:0 
 
 source secrets.txt
-python3 data/make_labels.py
+source $VENV_PATH/bin/activate
+python3 ../data/make_labels.py

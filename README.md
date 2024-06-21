@@ -37,11 +37,11 @@ It's recommended to use a virtual environment to install and manage the many Pyt
     ```bash
     sbatch slurm_scripts/make_data.sh
     ```
-    > [!NOTE]
-    > Remember to make this script executable by running
-    ```bash
-    sudo chmod +x slurm_scripts/make_data.sh
-    ```
+> [!NOTE]
+> Remember to make this script executable by running
+> ```bash
+> sudo chmod +x slurm_scripts/make_data.sh
+> ```
 
 ## Training the Model
 
@@ -55,9 +55,11 @@ sbatch slurm_scripts/train.sh
 ```
 > [!NOTE]
 > Remember to make this script executable by running
-```bash
-sudo chmod +x slurm_scripts/make_data.sh
-```
+> ```bash
+> sudo chmod +x slurm_scripts/make_data.sh
+> ```
+
+> [!NOTE]
 > Ensure you have enough disk space and memory to handle the dataset and model training.
 > The training script will save model checkpoints and logs in the `checkpoints/` and `logs/` directories, respectively.
 

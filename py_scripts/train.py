@@ -36,7 +36,7 @@ def main():
         whitened_layers=CONFIG["cw_layer"]["whitened_layers"],
         cw_lambda=CONFIG["cw_layer"]["cw_lambda"],
         pretrained_model=CONFIG["directories"]["model"],
-        vanilla_pretrain=True
+        vanilla_pretrain=CONFIG['train']['vanilla']
     )
 
     # Define loss, optimizer, and scheduler
@@ -58,7 +58,6 @@ def main():
     # Get data directories
     cub_path = os.getenv('CUB_PATH')
     train_df = pd.read_parquet(os.path.join(cub_path, CONFIG["directories"]["data"], "train.parquet"))
-    print(train_df.columns, flush=True)
     test_df = pd.read_parquet(os.path.join(cub_path, CONFIG["directories"]["data"], "test.parquet"))
     # Ensure reproducibility
     train_df, val_df = train_test_split(train_df, test_size=len(test_df), random_state=CONFIG["seed"])
@@ -83,7 +82,7 @@ def main():
         ),
         batch_size=CONFIG["train"]["batch_size"],
         shuffle=True,
-        num_workers=4
+        num_workers=CONFIG['train']['workers']
     )
 
     # Validation

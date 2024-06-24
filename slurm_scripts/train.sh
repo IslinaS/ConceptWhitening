@@ -8,6 +8,6 @@
 #SBATCH --partition=compsci-gpu
 #SBATCH --gres=gpu:4
 
-source secrets.txt
+source slurm_scripts/secrets.txt
 source $VENV_PATH/bin/activate
 python3 py_scripts/train.py

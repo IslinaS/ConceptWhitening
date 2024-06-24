@@ -21,9 +21,10 @@ cw_layer:
   cw_lambda: 0.1
 
 train:
-  print_freq: 5
-  train_cw_freq: 30
-  epochs: 200
+  vanilla: True
+  print_freq: 2
+  train_cw_freq: 1000000000
+  epochs: 50
   batch_size: 128
   workers: 4
-  checkpoint_prefix: "june24_200epoch_"
+  checkpoint_prefix: "nocw"

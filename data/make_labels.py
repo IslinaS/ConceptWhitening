@@ -3,36 +3,38 @@ import json
 import pyarrow  # Needed for parquet
 import pandas as pd
 import numpy as np
+
 from PIL import Image, ImageFilter
 
 
 """
 The objective here is to make the parquet that will be of format:
-
 image id, class, high level concept, low level concept, coords, certainty
 
 Here the high level concept is the part, and low level the attribute.
 Coords are computed from a preset window size, this can be changed easily.
 """
 
+
 def main():
-    CUB_PATH = "/usr/xtmp/aak61/CUB_200_2011"
+    CUB_PATH = os.getenv("CUB_PATH")
     train_path = os.path.join(CUB_PATH, "datasets/cub200_cw/train.parquet")
     test_path = os.path.join(CUB_PATH, "datasets/cub200_cw/test.parquet")
 
     train, test = read_files(CUB_PATH)
     train = crop_and_augment(train, CUB_PATH)
-    #test = crop_and_augment(test, CUB_PATH)
+    # test = crop_and_augment(test, CUB_PATH)
 
     train["image_id"] = train['image_id'].astype(str)
     train.to_parquet(train_path, index=None)
-    #test.to_parquet(test_path, index=None)
+    # test.to_parquet(test_path, index=None)
 
 
 def read_files(cub_path):
     # Low Level Concepts + Certainty
     low_level_path = os.path.join(cub_path, "attributes/image_attribute_labels.txt")
-    df = pd.read_csv(low_level_path, delim_whitespace=True, header=None, names=['image_id', 'attribute_id', 'is_present', 'certainty_id', 'temp'])
+    df = pd.read_csv(low_level_path, delim_whitespace=True, header=None,
+                     names=['image_id', 'attribute_id', 'is_present', 'certainty_id', 'temp'])
     df = df[df["is_present"] == 1]  # Remove not present concepts
     df = df.drop(columns=["is_present", "temp"], axis=1)
 
@@ -71,9 +73,11 @@ def read_files(cub_path):
     df = df.drop(columns=['attribute_id'])
 
     # Also write a json dictionary to map low level concepts to an index
-    """rev = {value:key for key, value in low_level.items()}
+    """
+    rev = {value: key for key, value in low_level.items()}
     with open("low_level.json", 'w') as json_file:
-        json.dump(rev, json_file, indent=4)"""
+        json.dump(rev, json_file, indent=4)
+    """
 
     # Low to High level concept mapping
     mapping_path = os.path.abspath("data/json_files/mappings.json")
@@ -96,10 +100,12 @@ def read_files(cub_path):
                 concept = concept[0]
             concept = concept.strip()
             high_level[concept_id] = concept
-    
+
     # Also write the high level json mapping
-    """with open("high_level.json", 'w') as json_file:
-        json.dump(high_level, json_file, indent=4)"""
+    """
+    with open("high_level.json", 'w') as json_file:
+        json.dump(high_level, json_file, indent=4)
+    """
 
     # High Level Locations
     # Redact handles out of bounds values, so for now the coords can be out of bounds
@@ -155,8 +161,8 @@ def read_files(cub_path):
     df = df[df["coords"].notna()]
 
     # Set general to be the whole image
-    mask = df['high_level'] == 'general'
-    num_rows = mask.sum() 
+    mask = (df['high_level'] == 'general')
+    num_rows = mask.sum()
     coords_series = pd.Series([[-9999.0, -9999.0, 9999.0, 9999.0]] * num_rows, dtype=object)
     df.loc[mask, 'coords'] = coords_series
 
@@ -195,10 +201,10 @@ def crop_and_augment(df, base_path, target_size=(224, 224)):
         original_path = os.path.join(base_path, f"images/{row['path']}")
         new_dir = os.path.join(base_path, 'datasets', 'cub200_cw', 'train' if row['is_train'] else 'test')
         new_path = os.path.join(new_dir, f"{row['image_id']}.jpg")
-        
+
         if not os.path.exists(new_dir):
             os.makedirs(new_dir)
-        
+
         bbox = row['bbox']
         coords = row['coords']
 
@@ -211,10 +217,10 @@ def crop_and_augment(df, base_path, target_size=(224, 224)):
             # Only do this once per image
             if row['is_train']:
                 augmented_rows.extend(augment_data(image_resized, row, new_dir))
-        
+
         x_scale = target_size[0] / bbox[2]
         y_scale = target_size[1] / bbox[3]
-        
+
         new_coords = [
             int((coords[0] - bbox[0]) * x_scale),
             int((coords[1] - bbox[1]) * y_scale),
@@ -238,7 +244,7 @@ def augment_data(image, original_row, dir_path):
         'noisy': 'add_noise',
         'blurred': (ImageFilter.GaussianBlur(radius=2))
     }
-    
+
     new_rows = []
     for suffix, transform in transformations.items():
         if suffix == 'rotated':
@@ -249,19 +255,20 @@ def augment_data(image, original_row, dir_path):
             new_image = image.transpose(transform)
         else:
             new_image = image.filter(transform)
-        
-        # This name is super weird, but the reason 
+
+        # This name is super weird, but the reason
         new_path = os.path.join(dir_path, f"{original_row['image_id']}_{suffix}.jpg")
         new_image.save(new_path)
-        
+
         # Clone original row and update necessary fields
         new_row = original_row.copy()
         new_row['image_id'] = f"{original_row['image_id']}_{suffix}"
         new_row['path'] = new_path
         new_row['augmented'] = 1
         new_rows.append(new_row)
-    
+
     return new_rows
+
 
 def add_noise(image):
     np_image = np.array(image)

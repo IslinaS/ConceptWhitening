@@ -1,10 +1,13 @@
+"""
+It is, from a code cleanliness standpoint, beneficial to have two different types of datasets.
+Backbone returns the image and class, which is used to improve accuracy.
+CW returns the image and the concept bounding box, which is used to ???  # TODO: fill in here
+"""
+
 from torch.utils.data import Dataset
 from PIL import Image
 import pandas as pd
 
-# It is, from a code cleanliness standpoint, beneficial to have two different types of datasets.
-# Backbone returns the image and class, which is used to improve accuracy
-# CW returns the image and the concept bounding box, which is used to 
 
 class BackboneDataset(Dataset):
     """
@@ -29,7 +32,7 @@ class BackboneDataset(Dataset):
         path = self.paths[idx]
         label = self.labels[idx]
         image = Image.open(path).convert("RGB")
-        
+
         if self.transform:
             image = self.transform(image)
 
@@ -39,7 +42,7 @@ class BackboneDataset(Dataset):
 class CWDataset(Dataset):
     """
     The CW dataset on a __getitem__ call will return the image and the bounding box for the concept.
-    Unlike BackboneDataset, this does NOT return the class labels
+    Unlike BackboneDataset, this does NOT return the class labels.
     """
     def __init__(self, annotations, high_level, low_level, n_free=2, transform=None):
         """
@@ -48,7 +51,7 @@ class CWDataset(Dataset):
 
         This dataset supports filtering for a specific concept via the set_mode method.
         """
-        # Data itself. We make sure we only have original and unaugmented images
+        # Data itself. We make sure we only have original and unaugmented images.
         self.annotations = annotations.copy()
         self.annotations = self.annotations[self.annotations["augment"] == 0]
 
@@ -72,16 +75,16 @@ class CWDataset(Dataset):
     def set_mode(self, mode):
         """
         This determines which concept is going to be loaded.
-        When set to a value, only the concept associated with that value will be available to __getitem__() 
+        When set to a value, only the concept associated with that value will be available to __getitem__().
 
-        Does NOT enforce illegal values! Do NOT call after putting it into a dataloader
+        Does NOT enforce illegal values! Do NOT call after putting it into a data loader.
         """
         self.mode = mode
         self.filtered_df = self.annotations[self.annotations["low_level"] == self.mode]
 
     def _set_n_concepts(self):
         """
-        Store the number of low level concepts we have for later use
+        Store the number of low level concepts we have for later use.
         """
         self.n_concepts = len(self.low_level)
 
@@ -100,7 +103,7 @@ class CWDataset(Dataset):
         new_mode = max(self.low_level.values()) + 1  # This will be the new "index" of the concept
 
         for hl in self.high_level.values():
-            # Filter rows that include the current high_level. We get one row per image id so we can copy its other values
+            # Filter rows that include the current high_level. We get 1 row per image ID so we can copy its other values
             hl_rows = self.annotations[self.annotations['high_level'] == hl].copy()
             hl_rows = hl_rows.drop_duplicates(subset='image_id', keep='first')
 
@@ -122,7 +125,7 @@ class CWDataset(Dataset):
 
     def _index_low_level(self):
         """
-        Replace the names of the low level concepts with their index values
+        Replace the names of the low level concepts with their index values.
         """
         self.annotations["low_level"] = self.annotations["low_level"].replace(self.low_level)
 
@@ -133,7 +136,7 @@ class CWDataset(Dataset):
         # Only select items that have the current specified low level concept
         path = self.filtered_df["path"].iloc[idx]
         bbox = self.filtered_df["coords"].iloc[idx]
-        
+
         image = Image.open(path).convert("RGB")
 
         if self.transform:

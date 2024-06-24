@@ -8,6 +8,7 @@ from models.IterNorm import IterNormRotation as CWLayer
 Code adapted from BBN.
 """
 
+
 class BottleNeck(nn.Module):
     expansion = 4
 
@@ -39,19 +40,22 @@ class BottleNeck(nn.Module):
         else:
             self.downsample = None
         self.relu = nn.ReLU(True)
-    
+
     def forward(self, x, region=None, orig_x_dim=None):
         # The isinstance see if we are passing to a CWLayer. If we are, send the region
         out = self.conv1(x)
-        out = self.bn1(out, X_redact_coords=region, orig_x_dim=orig_x_dim) if isinstance(self.bn1, CWLayer) else self.bn1(out)
+        out = (self.bn1(out, X_redact_coords=region, orig_x_dim=orig_x_dim)
+               if isinstance(self.bn1, CWLayer) else self.bn1(out))
         out = self.relu1(out)
 
         out = self.conv2(out)
-        out = self.bn2(out, X_redact_coords=region, orig_x_dim=orig_x_dim) if isinstance(self.bn2, CWLayer) else self.bn2(out)
+        out = (self.bn2(out, X_redact_coords=region, orig_x_dim=orig_x_dim)
+               if isinstance(self.bn2, CWLayer) else self.bn2(out))
         out = self.relu2(out)
 
         out = self.conv3(out)
-        out = self.bn3(out, X_redact_coords=region, orig_x_dim=orig_x_dim) if isinstance(self.bn3, CWLayer) else self.bn3(out)
+        out = (self.bn3(out, X_redact_coords=region, orig_x_dim=orig_x_dim)
+               if isinstance(self.bn3, CWLayer) else self.bn3(out))
 
         if self.downsample is not None:
             residual = self.downsample(x)
@@ -115,7 +119,7 @@ class ResNet(nn.Module):
                 self.layers[i][whitened_layer].bn1 = new_cw_layer
                 self.cw_layers.append(new_cw_layer)
 
-        if (pretrain_loc):
+        if pretrain_loc:
             self.load_model(pretrain=pretrain_loc)
 
     def change_mode(self, mode):
@@ -186,15 +190,13 @@ class ResNet(nn.Module):
         return out
 
 
-def res50(
-    pretrained_model=None,
-    vanilla_pretrain=False
-):
-    resnet = ResNet(
+def res50(whitened_layers, cw_lambda, pretrained_model=None, vanilla_pretrain=False):
+    return ResNet(
         BottleNeck,
         [3, 4, 6, 3],
         last_layer_stride=2,
+        whitened_layers=whitened_layers,
+        cw_lambda=cw_lambda,
         pretrain_loc=pretrained_model,
         vanilla_pretrain=vanilla_pretrain
-    )    
-    return resnet
+    )

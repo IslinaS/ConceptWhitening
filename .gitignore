@@ -1,5 +1,7 @@
 # Python Related
 __pycache__/
+.venv
+.flake8
 
 # Stored Models
 models/pretrained/

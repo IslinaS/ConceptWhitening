@@ -1,12 +1,13 @@
+"""
+This file is used to manually match low to high level concepts. They're saved to mappings.json.
+"""
 import os
 import json
 
-# This file is used to manually match low to high level concepts.
-# They're saved to mappings.json
 
 def read_low_level(file_path):
     """
-    Parses the attributes file for low level concepts
+    Parses the attributes file for low level concepts.
     """
     concepts = []
     with open(file_path, 'r') as file:
@@ -17,26 +18,25 @@ def read_low_level(file_path):
 
 
 def read_high_level(file_path):
-    """ 
-    Reads body parts from a file and returns a list, adds general as an option. 
+    """
+    Reads body parts from a file and returns a list, adds general as an option.
     """
     high_level = ['general']  # Adding 'general' as a category
     with open(file_path, 'r') as file:
         for line in file:
             parts = line.strip().split(' ')
-            h = parts[2] if len(parts) > 2 else parts[1]
-            high_level.append(h)
+            high_level.append(parts[-1])
     return high_level
 
 
 def user_map(low_level, high_level):
-    """ 
-    Asks the user to match low level to high level concepts
+    """
+    Asks the user to match low level to high level concepts.
     """
     matches = {}
     seen = {}
     total = 0
-    
+
     print("Please match each attribute to a body part.")
     for concept in low_level:
         # See if we've done this base concept
@@ -53,7 +53,7 @@ def user_map(low_level, high_level):
         seen[base_concept] = choice
         total += 1
         print("------------")
-    print(f"Total Assignments: {total}")
+    print(f"Total assignments: {total}")
     return matches
 
 
@@ -64,8 +64,8 @@ def save_as_json(matches, filename):
 
 
 def main():
-    cub_path = "/usr/xtmp/aak61/CUB_200_2011"
-    low_path = os.path.join(cub_path, "attributes.txt")
+    cub_path = os.getenv("CUB_PATH")
+    low_path = os.path.join(cub_path, "attributes/attributes.txt")
     high_path = os.path.join(cub_path, "parts/parts.txt")
 
     # There's the weird issue of having left and right for some concepts

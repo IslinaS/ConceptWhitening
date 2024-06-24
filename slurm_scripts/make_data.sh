@@ -8,4 +8,6 @@
 #SBATCH --partition=compsci-gpu
 #SBATCH --gres=gpu:0 
 
-python3 data/make_labels.py
+source secrets.txt
+source $VENV_PATH/bin/activate
+python3 ../data/make_labels.py

@@ -78,7 +78,7 @@ class ResNet(nn.Module):
         whitened_layers=[[0], [0], [0], [0]],
         cw_lambda=0.1,
         pretrain_loc=None,
-        vanilla_pretrain=True
+        vanilla_pretrain=True  # When true, expects no concept whitening modules
     ):
         super(ResNet, self).__init__()
         self.inplanes = 64
@@ -119,7 +119,7 @@ class ResNet(nn.Module):
                 self.layers[i][whitened_layer].bn1 = new_cw_layer
                 self.cw_layers.append(new_cw_layer)
 
-        if pretrain_loc:
+        if pretrain_loc and not vanilla_pretrain:
             self.load_model(pretrain=pretrain_loc)
 
     def change_mode(self, mode):
@@ -190,7 +190,7 @@ class ResNet(nn.Module):
         return out
 
 
-def res50(whitened_layers, cw_lambda, pretrained_model=None, vanilla_pretrain=False):
+def res50(whitened_layers, cw_lambda, pretrained_model=None, vanilla_pretrain=True):
     return ResNet(
         BottleNeck,
         [3, 4, 6, 3],

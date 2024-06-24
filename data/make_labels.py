@@ -9,10 +9,10 @@ from PIL import Image, ImageFilter
 
 """
 The objective here is to make the parquet that will be of format:
-image id, class, high level concept, low level concept, coords, certainty
+'image_id', 'certainty_id', 'class', 'path', 'is_train', 'low_level', 'high_level', 'coords', 'bbox', 'augment'
 
 Here the high level concept is the part, and low level the attribute.
-Coords are computed from a preset window size, this can be changed easily.
+Coords are computed from a preset window size, this can be changed easily in the read_file function.
 """
 
 
@@ -23,14 +23,19 @@ def main():
 
     train, test = read_files(CUB_PATH)
     train = crop_and_augment(train, CUB_PATH)
-    # test = crop_and_augment(test, CUB_PATH)
+    test = crop_and_augment(test, CUB_PATH)
 
     train["image_id"] = train['image_id'].astype(str)
     train.to_parquet(train_path, index=None)
-    # test.to_parquet(test_path, index=None)
+    test.to_parquet(test_path, index=None)
 
 
 def read_files(cub_path):
+    """
+    TODO: FINISH DOCSTRING
+    TODO: COMMENT
+    Read files navigates an unaltered cub directory and creates a train and test dataset
+    """
     # Low Level Concepts + Certainty
     low_level_path = os.path.join(cub_path, "attributes/image_attribute_labels.txt")
     df = pd.read_csv(low_level_path, delim_whitespace=True, header=None,

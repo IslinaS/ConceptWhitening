@@ -21,9 +21,9 @@ cw_layer:
   cw_lambda: 0.1
 
 train:
-  print_freq: 1
+  print_freq: 5
   train_cw_freq: 30
-  epochs: 20
+  epochs: 200
   batch_size: 128
   workers: 4
-  checkpoint_prefix: "resnet50cw_june15"
+  checkpoint_prefix: "june24_200epoch_"

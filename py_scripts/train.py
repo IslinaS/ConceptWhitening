@@ -1,5 +1,5 @@
-from ..data.datasets import BackboneDataset, CWDataset
-from ..models.ResNet50 import res50
+from data.datasets import BackboneDataset, CWDataset
+from models.ResNet50 import res50
 
 import os
 import json
@@ -35,12 +35,12 @@ def main():
     model = res50(
         whitened_layers=CONFIG["cw_layer"]["whitened_layers"],
         cw_lambda=CONFIG["cw_layer"]["cw_lambda"],
-        pretrained_model=CONFIG["directories"]["model"]
+        pretrained_model=CONFIG["directories"]["model"],
+        vanilla_pretrain=True
     )
 
     # Define loss, optimizer, and scheduler
     criterion = nn.CrossEntropyLoss().cuda()
-    # TODO: Other optimizers?
     optimizer = torch.optim.SGD(
         model.parameters(),
         lr=CONFIG["optim"]["lr"],
@@ -58,6 +58,7 @@ def main():
     # Get data directories
     cub_path = os.getenv('CUB_PATH')
     train_df = pd.read_parquet(os.path.join(cub_path, CONFIG["directories"]["data"], "train.parquet"))
+    print(train_df.columns, flush=True)
     test_df = pd.read_parquet(os.path.join(cub_path, CONFIG["directories"]["data"], "test.parquet"))
     # Ensure reproducibility
     train_df, val_df = train_test_split(train_df, test_size=len(test_df), random_state=CONFIG["seed"])
@@ -108,16 +109,30 @@ def main():
     )
 
     # Concept
-    concepts = CWDataset(
-        train_df, high_level, low_level, n_free=0,
-        transform=transforms.Compose([transforms.ToTensor()])
-    )
-    concept_loader = DataLoader(
-        concepts,
-        batch_size=CONFIG["train"]["batch_size"],
-        shuffle=True,
-        num_workers=CONFIG["train"]["workers"]
-    )
+    # First, we need to add the free concepts using CWDataset's static method
+    train_df_free, free_concept_map = CWDataset.make_free_concepts(train_df, 2, low_level, high_level)
+    min_concept = min(free_concept_map.values())
+    max_concept = max(free_concept_map.values())
+
+    concept_loaders = []
+    for i in range(min_concept, max_concept + 1):
+        concepts = CWDataset(
+            train_df_free, low_level, mode=i,
+            transform=transforms.Compose([transforms.ToTensor()])
+        )
+
+        # Sometimes concepts are not in the training set, temporarily skip them
+        # This can be better addressed in the future
+        if concepts.__len__() == 0:
+            continue
+        
+        # Notice that num workers is not set. If there are hundreds of concepts, using lots of workers per concept is not practical
+        concept_loader = DataLoader(
+            concepts,
+            batch_size=CONFIG["train"]["batch_size"],
+            shuffle=True
+        )
+        concept_loaders.append(concept_loader)
 
     # =============
     # Training Loop
@@ -129,8 +144,7 @@ def main():
     accs = []
     for epoch in range(CONFIG["train"]["epochs"]):
         # Train and validate an epoch
-        _, train_acc, train_duration = train(train_loader, concept_loader, concepts, model, criterion, optimizer)
-        # TODO: add a concept trainer here if the epoch is a multiple of 10 or something?
+        _, train_acc, train_duration = train(train_loader, concept_loaders, model, criterion, optimizer)
         accs.append(validate(val_loader, model, criterion)[1])
 
         # Learning rate scheduler step. Every 30 epochs, learning rate lr is divided by 5.
@@ -164,7 +178,7 @@ def main():
         print(f"Training completed. Final Accuracy: {val_acc:.4f}")
 
 
-def train(train_loader, concept_loader, concept_dataset, model, criterion, optimizer):
+def train(train_loader, concept_loaders, model, criterion, optimizer):
     """
     Trains the model for one epoch.
     """
@@ -174,7 +188,7 @@ def train(train_loader, concept_loader, concept_dataset, model, criterion, optim
     model.train()
 
     for i, (input, target) in enumerate(train_loader):
-        # BUG: This is important, target is offset by 1 in CUB
+        # NOTE: Cub datasets labels start at 1, hence this line. If your target starts at zero, this needs to be removed!
         target = target - 1
 
         # Train for concept whitening loss once every 30 batches.
@@ -182,16 +196,13 @@ def train(train_loader, concept_loader, concept_dataset, model, criterion, optim
             model.eval()
             with torch.no_grad():
                 # Update the gradient matrix G for the concept whitening layers
-                for i in range(1, concept_dataset.n_concepts + 1):
-                    concept_dataset.set_mode(i)
-                    model.module.change_mode(i)
-
+                for concept_loader in concept_loaders:
                     for batch, region in concept_loader:
                         batch = batch.cuda()
                         model(batch, region, batch.shape[2])  # batch.shape[2] gives the original x dimension
                         break  # only sample one batch for each concept
 
-                model.update_rotation_matrix()
+                model.module.update_rotation_matrix()
                 # Stop computing the gradient for concept whitening.
                 # mode=-1 is the default mode that skips gradient computation.
                 model.module.change_mode(-1)
@@ -263,7 +274,7 @@ def save_checkpoint(state):
         str: Path to the saved model file.
     """
     path = os.path.join(CONFIG["directories"]["checkpoint"],
-                        f"{CONFIG["train"]["checkpoint_prefix"]}_epoch_{state['epoch']}_acc_{state['acc']:.4f}.pth")
+                        f"{CONFIG['train']['checkpoint_prefix']}_epoch_{state['epoch']}_acc_{state['acc']:.4f}.pth")
     torch.save(state["state_dict"], path)
     return path
 

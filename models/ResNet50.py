@@ -73,10 +73,12 @@ class ResNet(nn.Module):
         self,
         block_type,
         num_blocks,
+        concept_mat,
         num_classes=200,
         last_layer_stride=2,
         whitened_layers=[[0], [0], [0], [0]],
         cw_lambda=0.1,
+        activation_mode="pool_max",
         pretrain_loc=None,
         vanilla_pretrain=True  # When true, expects no concept whitening modules
     ):
@@ -115,7 +117,12 @@ class ResNet(nn.Module):
         for i in range(4):
             for whitened_layer in whitened_layers[i]:
                 # All params in train_params.yaml can be changed
-                new_cw_layer = CWLayer(self.BN_DIM[i], activation_mode="pool_max", lamb=cw_lambda)
+                new_cw_layer = CWLayer(
+                    num_features=self.BN_DIM[i],
+                    activation_mode=activation_mode,
+                    concept_mat=concept_mat,
+                    cw_lambda=cw_lambda
+                )
                 self.layers[i][whitened_layer].bn1 = new_cw_layer
                 self.cw_layers.append(new_cw_layer)
 
@@ -190,13 +197,16 @@ class ResNet(nn.Module):
         return out
 
 
-def res50(whitened_layers, cw_lambda, pretrained_model=None, vanilla_pretrain=True):
+def res50(whitened_layers, concept_mat, cw_lambda, activation_mode="pool_max",
+          pretrained_model=None, vanilla_pretrain=True):
     return ResNet(
         BottleNeck,
         [3, 4, 6, 3],
         last_layer_stride=2,
         whitened_layers=whitened_layers,
+        concept_mat=concept_mat,
         cw_lambda=cw_lambda,
+        activation_mode=activation_mode,
         pretrain_loc=pretrained_model,
         vanilla_pretrain=vanilla_pretrain
     )

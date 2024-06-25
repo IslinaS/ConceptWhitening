@@ -93,15 +93,16 @@ class IterNormRotation(torch.nn.Module):
     Because the concept activation is calculated based on a feature map, which is a matrix,
     there are multiple ways to calculate the activation, denoted by activation_mode.
     """
-    def __init__(self, num_features, num_channels=None, T=10, dim=4, eps=1e-5, momentum=0.05, lamb=0.1,
-                 affine=False, mode=-1, activation_mode='pool_max', *args, **kwargs):
+    def __init__(self, num_features, concept_mat, num_channels=None, T=10, dim=4, eps=1e-5, momentum=0.05,
+                 cw_lambda=0.1, affine=False, mode=-1, activation_mode='pool_max', *args, **kwargs):
         super(IterNormRotation, self).__init__()
         assert dim == 4, 'IterNormRotation does not support 2D'
         self.T = T
         self.eps = eps
         self.momentum = momentum
         self.num_features = num_features
-        self.lamb = lamb
+        self.concept_mat = concept_mat
+        self.cw_lambda = cw_lambda
         self.affine = affine
         self.dim = dim
         self.mode = mode
@@ -146,7 +147,7 @@ class IterNormRotation(torch.nn.Module):
         The update uses Cayley transform to make sure R is always orthonormal.
         """
         with torch.no_grad():
-            G = self.sum_G/self.counter.reshape(-1, 1)
+            G = self.sum_G / self.counter.reshape(-1, 1)
             R = self.running_rot.clone()
 
             for _ in range(2):
@@ -173,10 +174,10 @@ class IterNormRotation(torch.nn.Module):
 
                     if F_Y_tau > F_X + c1 * tau * dF_0 + 1e-18:
                         beta = tau
-                        tau = (beta + alpha)/2
+                        tau = (beta + alpha) / 2
                     elif dF_tau + 1e-18 < c2 * dF_0:
                         alpha = tau
-                        tau = (beta + alpha)/2
+                        tau = (beta + alpha) / 2
                     else:
                         break
 
@@ -257,7 +258,7 @@ class IterNormRotation(torch.nn.Module):
                 # For grad and self.sum_G, each ROW corresponds to a concept
                 low_grad = -X_activated.mean((0,))
                 # dc, high_grad
-                grad = -(torch.einsum('bd,bm->bmd', X_activated, max_bool)).mean((0,)) * self.lamb / \
+                grad = -(torch.einsum('bd,bm->bmd', X_activated, max_bool)).mean((0,)) * self.cw_lambda / \
                     self.concept_mat[self.mode].sum()
                 grad[self.mode, :] += low_grad + grad[self.mode, :]
 

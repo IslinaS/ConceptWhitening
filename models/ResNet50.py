@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 
 from collections import OrderedDict
+from typing import Type
 from models.IterNorm import IterNormRotation as CWLayer
 
 """
@@ -71,7 +72,7 @@ class BottleNeck(nn.Module):
 class ResNet(nn.Module):
     def __init__(
         self,
-        block_type,
+        block_type: Type[BottleNeck],
         num_blocks,
         concept_mat,
         num_classes=200,
@@ -98,9 +99,7 @@ class ResNet(nn.Module):
             num_blocks[2], 256, stride=2
         )
         self.layer4 = self._make_layer(
-            num_blocks[3],
-            512,
-            stride=last_layer_stride,
+            num_blocks[3], 512, stride=last_layer_stride,
         )
 
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
@@ -149,11 +148,13 @@ class ResNet(nn.Module):
     def load_model(self, pretrain):
         print("Loading backbone pretrain model from {}......".format(pretrain))
         model_dict = self.state_dict()
-        pretrain_dict = torch.load(pretrain)
+        pretrain_dict: dict = torch.load(pretrain)
         pretrain_dict = pretrain_dict["state_dict"] if "state_dict" in pretrain_dict else pretrain_dict
 
         new_dict = OrderedDict()
+
         for key, value in pretrain_dict.items():
+            key: str
             if "cb_block" in key or "rb_block" in key:
                 continue
             if key.startswith("module"):

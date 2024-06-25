@@ -132,7 +132,7 @@ def read_files(cub_path):
         "throat": 120
     }
 
-    concept_locs = {}
+    concept_locs: dict[int, list[dict]] = {}
     part_path = os.path.join(cub_path, "parts/part_locs.txt")
     with open(part_path, "r") as file:
         for line in file:
@@ -199,7 +199,7 @@ def read_files(cub_path):
     return train_df, test_df
 
 
-def crop_and_augment(df, base_path, target_size=(224, 224)):
+def crop_and_augment(df: pd.DataFrame, base_path, target_size=(224, 224)):
     augmented_rows = []
     for idx, row in df.iterrows():
 
@@ -242,7 +242,7 @@ def crop_and_augment(df, base_path, target_size=(224, 224)):
     return pd.concat([df, augmented_df], ignore_index=True)
 
 
-def augment_data(image, original_row, dir_path):
+def augment_data(image: Image.Image, original_row: pd.Series, dir_path):
     transformations = {
         'flipped': Image.FLIP_LEFT_RIGHT,
         'rotated': 15,  # degrees

@@ -1,5 +1,5 @@
 from data.datasets import BackboneDataset, CWDataset
-from models.ResNet50 import res50
+from models.ResNet50 import ResNet, res50
 
 import os
 import json
@@ -188,7 +188,13 @@ def main():
         print(f"Training completed. Final Accuracy: {val_acc:.4f}")
 
 
-def train(train_loader, concept_loaders, model, criterion, optimizer):
+def train(
+        train_loader: DataLoader,
+        concept_loaders: list[DataLoader],
+        model: nn.DataParallel[ResNet],
+        criterion: nn.modules.loss._Loss,
+        optimizer: torch.optim.Optimizer
+    ):
     """
     Trains the model for one epoch.
     """
@@ -198,6 +204,8 @@ def train(train_loader, concept_loaders, model, criterion, optimizer):
     model.train()
 
     for i, (input, target) in enumerate(train_loader):
+        input: torch.Tensor
+        target: torch.Tensor
         # NOTE: CUB dataset labels start at 1, hence this line. If your target starts at zero, this needs to be removed!
         target = target - 1
 
@@ -211,6 +219,7 @@ def train(train_loader, concept_loaders, model, criterion, optimizer):
                     model.module.change_mode(idx)
 
                     for batch, region in concept_loader:
+                        batch: torch.Tensor
                         batch = batch.cuda()
                         model(batch, region, batch.shape[2])  # batch.shape[2] gives the original x dimension
                         break  # only sample one batch for each concept
@@ -222,12 +231,12 @@ def train(train_loader, concept_loaders, model, criterion, optimizer):
             model.train()
 
         # Move them to CUDA, assumes CUDA access
-        target = target.cuda()
         input = input.cuda()
+        target = target.cuda()
 
         # Forward pass + loss computation
         output = model(input)
-        loss = criterion(output, target)
+        loss: torch.Tensor = criterion(output, target)
 
         # Performance metrics
         total_loss += loss.item()
@@ -245,7 +254,11 @@ def train(train_loader, concept_loaders, model, criterion, optimizer):
     return avg_loss, acc, end - start
 
 
-def validate(data_loader, model, criterion):
+def validate(
+        data_loader: DataLoader,
+        model: nn.DataParallel[ResNet],
+        criterion: nn.modules.loss._Loss
+    ):
     """
     Gradient-free forward pass for the current model.
     """
@@ -255,6 +268,8 @@ def validate(data_loader, model, criterion):
 
     with torch.no_grad():
         for input, target in data_loader:
+            input: torch.Tensor
+            target: torch.Tensor
             # BUG: This is important, target is offset by 1 in CUB
             target = target - 1
 
@@ -264,7 +279,7 @@ def validate(data_loader, model, criterion):
 
             # Forward pass
             output = model(input)
-            loss = criterion(output, target)
+            loss: torch.Tensor = criterion(output, target)
 
             # Performance metrics
             total_loss += loss.item()
@@ -292,7 +307,7 @@ def save_checkpoint(state):
     return path
 
 
-def top_k_correct(output, target, k=1):
+def top_k_correct(output, target: torch.Tensor, k=1):
     """
     See how many predictions were in the top k predicted classes.
     Assumes target is already adjusted to be -1 for CUB.

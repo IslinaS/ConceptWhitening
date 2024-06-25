@@ -15,10 +15,15 @@ class BackboneDataset(Dataset):
     The backbone dataset on a __getitem__ call will return the image and the class label.
     This is distinct from the CWDataset, which returns different attributes.
     """
-    def __init__(self, annotations, transform=None):
+    def __init__(self, annotations: pd.DataFrame, transform=None):
         """
         Annotation file is crucial. It is the parquet with columns image_id and class (plus others).
         There can be any number of classes and image_ids here.
+
+        Params:
+        -------
+        - annotations (pd.DataFrame): Dataframe of labeled concepts
+        - transform (TorchVision Transform): Transform to be applied to each image (mainly to make it a tensor)
         """
         self.annotations = annotations.copy()
         self.annotations = self.annotations.drop_duplicates(subset='image_id', keep='first')
@@ -186,7 +191,7 @@ class CWDataset(Dataset):
         concept_matrix = torch.zeros((num_low_level, num_low_level), dtype=torch.int)
 
         # Reverse the mappings dictionary to map high level concept to low level indices
-        high_to_low = {}
+        high_to_low: dict[str, list[int]] = {}
         for low_concept, high_concept in mappings.items():
             if high_concept not in high_to_low:
                 high_to_low[high_concept] = []

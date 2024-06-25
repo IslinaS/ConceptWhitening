@@ -98,7 +98,7 @@ def read_files(cub_path):
             vals = line.split(" ")
             concept_id = int(vals[0])
             concept = vals[1:]
-            # Sometimes concepts are left/right. This merges them into one high level part
+            # Sometimes concepts are left/right. This merges them into one high level part.
             if len(concept) > 1:
                 concept = concept[1]
             else:

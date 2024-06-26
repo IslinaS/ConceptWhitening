@@ -11,15 +11,15 @@ directories:
   mappings: "data/json/mappings.json"
 
 optim:
-  lr: 0.001
+  lr: 1.0e-3
   momentum: 0.9
-  l2: 0.00001
+  l2: 1.0e-5
   lr_step: 30
   lr_gamma: 0.2
 
 cw_layer:
   whitened_layers: [[0], [0], [0], [0]]
-  cw_lambda: 0.1
+  cw_lambda: 0.2
   activation_mode: "pool_max"
 
 train:
@@ -29,4 +29,4 @@ train:
   epochs: 50
   batch_size: 128
   workers: 4
-  checkpoint_prefix: "cwjune25"
+  checkpoint_prefix: "lambda0.2_cwjune25"

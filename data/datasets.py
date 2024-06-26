@@ -66,7 +66,7 @@ class CWDataset(Dataset):
         # Data itself. We make sure we only have original and unaugmented images
         # since concepts are not labeled in augmented ones.
         self.annotations = annotations.copy()
-        self.annotations = self.annotations[self.annotations["augment"] == 0]
+        self.annotations = self.annotations[self.annotations["augmented"] == 0]
 
         # Used to create unknown concepts
         self.low_level = low_level

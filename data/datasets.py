@@ -57,7 +57,8 @@ class CWDataset(Dataset):
         - mode (int): Concept index to keep
         - transform (TorchVision Transform): Transform to be applied to each image (mainly to make it a tensor)
         """
-        # Data itself. We make sure we only have original and unaugmented images since concepts are not labeled in augmented ones
+        # Data itself. We make sure we only have original and unaugmented images since concepts are not labeled in
+        # augmented ones
         self.annotations = annotations.copy()
         self.annotations = self.annotations[self.annotations["augment"] == 0]
 
@@ -76,7 +77,8 @@ class CWDataset(Dataset):
         Replace the names of the low level concepts with their index values.
         """
         # TODO: Fix warning associated with this
-        # FutureWarning: Downcasting behavior in `replace` is deprecated and will be removed in a future version. To retain the old behavior, explicitly call `result.infer_objects(copy=False)`. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)` self.annotations["low_level"] = self.annotations["low_level"].replace(self.low_level).infer_objects(copy=False)
+        # FutureWarning: Downcasting behavior in `replace` is deprecated and will be removed in a future version.
+        # To retain the old behavior, explicitly call `result.infer_objects(copy=False)`.
         self.annotations["low_level"] = self.annotations["low_level"].replace(self.low_level).infer_objects(copy=False)
 
     def __len__(self):
@@ -92,7 +94,7 @@ class CWDataset(Dataset):
             image = self.transform(image)
 
         return image, bbox
-    
+
     @staticmethod
     def make_free_concepts(annotations, n_free, low_level, high_level):
         """
@@ -142,5 +144,5 @@ class CWDataset(Dataset):
         if new_rows:
             new_rows_df = pd.concat(new_rows, ignore_index=True)
             annotations = pd.concat([annotations, new_rows_df], ignore_index=True)
-        
+
         return annotations, low_level

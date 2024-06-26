@@ -22,8 +22,8 @@ cw_layer:
 
 train:
   vanilla: True
-  print_freq: 2
-  train_cw_freq: 1000000000
+  print_freq: 1
+  train_cw_freq: 20
   epochs: 50
   batch_size: 128
   workers: 4

@@ -241,7 +241,7 @@ def validate(data_loader, model, criterion):
 
     with torch.no_grad():
         for input, target in data_loader:
-            # BUG: This is important, target is offset by 1 in CUB
+            # NOTE: Cub datasets labels start at 1, hence this line. If your target starts at zero, this needs to be removed!
             target = target - 1
 
             # Moves them to CUDA, assumes CUDA access

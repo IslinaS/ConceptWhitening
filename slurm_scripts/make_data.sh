@@ -10,4 +10,6 @@
 
 source slurm_scripts/secrets.txt
 source $VENV_PATH/bin/activate
-python3 data/make_labels.py
+# 15: Lazuli Bunting (colorful, normal shape), 107: Common Raven (bizarre shape, no color), 
+# 186: Cedar Waxwing (tiny concepts like eyes I suspect)
+python3 data/make_labels.py 15 107 186 --write_json

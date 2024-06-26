@@ -75,7 +75,7 @@ def read_files(cub_path, test_classes, write_json=False):
 
     # Low level concept IDs
     low_level = {}
-    low_path = os.path.join(cub_path, "attributes.txt")
+    low_path = os.path.join(cub_path, "attributes/attributes.txt")
     with open(low_path, "r") as file:
         for line in file:
             vals = line.split(" ")

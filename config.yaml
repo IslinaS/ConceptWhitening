@@ -29,4 +29,4 @@ train:
   epochs: 50
   batch_size: 128
   workers: 4
-  checkpoint_prefix: "nocw"
+  checkpoint_prefix: "cwjune25"

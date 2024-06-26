@@ -8,6 +8,7 @@ directories:
   checkpoint: "models/checkpoints"
   high_concepts: "data/json/high_level.json"
   low_concepts: "data/json/low_level.json"
+  mappings: "data/json/mappings.json"
 
 optim:
   lr: 0.001
@@ -19,6 +20,7 @@ optim:
 cw_layer:
   whitened_layers: [[0], [0], [0], [0]]
   cw_lambda: 0.1
+  activation_mode: "pool_max"
 
 train:
   vanilla: True

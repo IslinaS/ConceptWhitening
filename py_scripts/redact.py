@@ -1,7 +1,7 @@
 import torch
 
 
-def redact(latent_img_batch, coords, orig_x_dim, orig_y_dim=0):
+def redact(latent_img_batch: torch.Tensor, coords, orig_x_dim, orig_y_dim=0):
     """
     Takes a latent image batch and returns a redacted version for each image based on provided coordinates.
     Assumes all tensors are on GPU.

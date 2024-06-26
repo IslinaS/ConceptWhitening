@@ -21,9 +21,10 @@ It's recommended to use a virtual environment to install and manage the many Pyt
 
     ```bash
     python3 -m venv .venv
+    source .venv/bin/activate
     pip3 install -r requirements.txt
     ```
-2. If you have not already done so, set the variable   `VENV_PATH` in `secrets.txt` to be the **absolute** path to your virtual environment.
+2. If you have not already done so, set the variable `VENV_PATH` in `secrets.txt` to be the **absolute** path to your virtual environment.
 
 ### Prepare the CUB dataset for training
 

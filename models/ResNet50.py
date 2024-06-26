@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 
 from collections import OrderedDict
+from typing import Type
 from models.IterNorm import IterNormRotation as CWLayer
 
 """
@@ -71,12 +72,14 @@ class BottleNeck(nn.Module):
 class ResNet(nn.Module):
     def __init__(
         self,
-        block_type,
+        block_type: Type[BottleNeck],
         num_blocks,
+        concept_mat,
         num_classes=200,
         last_layer_stride=2,
         whitened_layers=[[0], [0], [0], [0]],
         cw_lambda=0.1,
+        activation_mode="pool_max",
         pretrain_loc=None,
         vanilla_pretrain=True  # When true, expects no concept whitening modules
     ):
@@ -96,9 +99,7 @@ class ResNet(nn.Module):
             num_blocks[2], 256, stride=2
         )
         self.layer4 = self._make_layer(
-            num_blocks[3],
-            512,
-            stride=last_layer_stride,
+            num_blocks[3], 512, stride=last_layer_stride,
         )
 
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
@@ -115,7 +116,12 @@ class ResNet(nn.Module):
         for i in range(4):
             for whitened_layer in whitened_layers[i]:
                 # All params in train_params.yaml can be changed
-                new_cw_layer = CWLayer(self.BN_DIM[i], activation_mode="pool_max", lamb=cw_lambda)
+                new_cw_layer = CWLayer(
+                    num_features=self.BN_DIM[i],
+                    activation_mode=activation_mode,
+                    concept_mat=concept_mat,
+                    cw_lambda=cw_lambda
+                )
                 self.layers[i][whitened_layer].bn1 = new_cw_layer
                 self.cw_layers.append(new_cw_layer)
 
@@ -142,11 +148,13 @@ class ResNet(nn.Module):
     def load_model(self, pretrain):
         print("Loading backbone pretrain model from {}......".format(pretrain))
         model_dict = self.state_dict()
-        pretrain_dict = torch.load(pretrain)
+        pretrain_dict: dict = torch.load(pretrain)
         pretrain_dict = pretrain_dict["state_dict"] if "state_dict" in pretrain_dict else pretrain_dict
 
         new_dict = OrderedDict()
+
         for key, value in pretrain_dict.items():
+            key: str
             if "cb_block" in key or "rb_block" in key:
                 continue
             if key.startswith("module"):
@@ -190,13 +198,16 @@ class ResNet(nn.Module):
         return out
 
 
-def res50(whitened_layers, cw_lambda, pretrained_model=None, vanilla_pretrain=True):
+def res50(whitened_layers, concept_mat, cw_lambda, activation_mode="pool_max",
+          pretrained_model=None, vanilla_pretrain=True):
     return ResNet(
         BottleNeck,
         [3, 4, 6, 3],
         last_layer_stride=2,
         whitened_layers=whitened_layers,
+        concept_mat=concept_mat,
         cw_lambda=cw_lambda,
+        activation_mode=activation_mode,
         pretrain_loc=pretrained_model,
         vanilla_pretrain=vanilla_pretrain
     )

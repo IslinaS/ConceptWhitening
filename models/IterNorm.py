@@ -247,7 +247,9 @@ class IterNormRotation(torch.nn.Module):
                 num_concepts = self.concept_mat.size()[0]
                 concept_mask = (
                     F.pad(self.concept_mat[self.mode], (0, self.num_channels - num_concepts), mode='constant', value=0)
-                ).unsqueeze(1)
+                ).unsqueeze(0)
+
+                concept_mask = concept_mask.cuda()
 
                 X_rot = torch.einsum('bc,dc->bd', X_activated, self.running_rot)
                 # bd

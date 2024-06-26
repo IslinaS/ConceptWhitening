@@ -273,7 +273,7 @@ def augment_data(image: Image.Image, original_row: pd.Series, dir_path):
             new_image = image.transpose(transform)
         else:
             new_image = image.filter(transform)
-        
+
         # Resize again just in case the size changed (rotation might)
         # This name is super weird, but the reason
         new_path = os.path.join(dir_path, f"{original_row['image_id']}_{suffix}.jpg")

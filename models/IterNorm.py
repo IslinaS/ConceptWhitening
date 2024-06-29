@@ -94,8 +94,8 @@ class IterNormRotation(torch.nn.Module):
     Because the concept activation is calculated based on a feature map, which is a matrix,
     there are multiple ways to calculate the activation, denoted by activation_mode.
     """
-    def __init__(self, num_features, concept_mat: torch.Tensor, num_channels=None, T=10, dim=4, eps=1e-5, momentum=0.05,
-                 cw_lambda=0.1, affine=False, mode=-1, activation_mode='pool_max', *args, **kwargs):
+    def __init__(self, num_features, concept_mat: torch.Tensor, latent_mappings, num_channels=None, T=10, dim=4, 
+                 eps=1e-5, momentum=0.05, cw_lambda=0.1, affine=False, mode=-1, activation_mode='pool_max'):
         super(IterNormRotation, self).__init__()
         assert dim == 4, 'IterNormRotation does not support 2D'
         self.T = T
@@ -103,6 +103,7 @@ class IterNormRotation(torch.nn.Module):
         self.momentum = momentum
         self.num_features = num_features
         self.concept_mat = concept_mat
+        self.latent_mappings = latent_mappings
         self.cw_lambda = cw_lambda
         self.affine = affine
         self.dim = dim
@@ -261,14 +262,15 @@ class IterNormRotation(torch.nn.Module):
                 # Calculating the gradient matrix of the concept activation loss
                 # For grad and self.sum_G, each ROW corresponds to a concept
                 low_grad = -X_activated.mean((0,))
+                grad_mode = self.latent_mappings[self.mode]
                 # dc, high_grad
                 grad = -(torch.einsum('bd,bm->bmd', X_activated, max_bool)).mean((0,)) * self.cw_lambda / \
                     self.concept_mat[self.mode].sum()
-                grad[self.mode, :] += low_grad + grad[self.mode, :]
+                grad[grad_mode, :] += low_grad + grad[grad_mode, :]
 
                 # Updating the gradient matrix G
                 self.sum_G = self.momentum * grad + (1. - self.momentum) * self.sum_G
-                self.counter[self.mode] += 1
+                self.counter[grad_mode] += 1
 
         # We set mode = -1 when we don't need to update G. For example, when we train for main objective
         X_hat = torch.einsum('bchw,dc->bdhw', X_hat, self.running_rot)

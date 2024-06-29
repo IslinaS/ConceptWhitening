@@ -7,7 +7,6 @@ CW returns the image and the concept bounding box, which is used to ???  # TODO:
 from torch.utils.data import Dataset
 from PIL import Image
 import pandas as pd
-import torch
 
 
 class BackboneDataset(Dataset):
@@ -133,7 +132,7 @@ class CWDataset(Dataset):
         new_rows = []
         new_mode = max(low_level.values()) + 1  # This will be the new "index" of the concept
 
-        for hl in high_level.values():
+        for hl in set(high_level.values()):
             # Filter rows that include the current high_level. We get 1 row per image ID so we can copy its other values
             hl_rows: pd.DataFrame = annotations[annotations['high_level'] == hl].copy()
             hl_rows = hl_rows.drop_duplicates(subset='image_id', keep='first')
@@ -158,19 +157,11 @@ class CWDataset(Dataset):
         return annotations, low_level, mappings
 
     @staticmethod
-    def generate_concept_matrix(low_level: dict, mappings: dict):
+    def generate_high_to_low_mapping(low_level: dict, mappings: dict):
         """
-        Generate a concept indicator matrix, which is a square 0-1 matrix. Each (i, j)-th entry is 1 if
-        the i-th and j-th low level concepts belong to the same high level concept, and 0 otherwise.
-        The concepts are indexed based on their order in `low_level`, but translated to start from index 0.
-        This matrix is used to train for concept whitening loss by the CWLayer.
-
-        For example, the concept indicator matrix
-        [[1, 1, 0, 0],
-         [1, 1, 0, 0],
-         [0, 0, 1, 1],
-         [0, 0, 1, 1]]
-        signifies that concepts 0 and 1 are in the same high level concept, and so are concepts 2 and 3.
+        Generate the mapping from each high level concept (by name) to low level concepts (by index) belonging to that
+        high level concept. The concepts are indexed based on their order in `low_level`, but translated
+        to start from index 0. This mapping is used to generate the concept indicator matrix and the latent space mappings in the CW layer.
 
         This is a STATIC method and is used to preprocess the data.
 
@@ -181,14 +172,9 @@ class CWDataset(Dataset):
 
         Returns:
         --------
-        - torch.Tensor: The concept indicator matrix
+        - dictionary: Mapping from high level concept to low level concept
         """
         min_concept = min(low_level.values())
-        max_concept = max(low_level.values())
-        num_low_level = max_concept - min_concept + 1
-
-        # Create an empty concept matrix of size num_low_level x num_low_level
-        concept_matrix = torch.zeros((num_low_level, num_low_level), dtype=torch.int)
 
         # Reverse the mappings dictionary to map high level concept to low level indices
         high_to_low: dict[str, list[int]] = {}
@@ -197,10 +183,4 @@ class CWDataset(Dataset):
                 high_to_low[high_concept] = []
             high_to_low[high_concept].append(low_level[low_concept] - min_concept)
 
-        # Populate the concept matrix
-        for indices in high_to_low.values():
-            for i in indices:
-                for j in indices:
-                    concept_matrix[i, j] = 1
-
-        return concept_matrix
+        return high_to_low

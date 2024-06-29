@@ -86,7 +86,7 @@ def main():
     # First, we need to add the free concepts using CWDataset's static method
     train_df_free, free_low_level, free_mappings = CWDataset.make_free_concepts(train_df, 2, low_level,
                                                                                 high_level, mappings)
-    concept_mat = CWDataset.generate_concept_matrix(free_low_level, free_mappings)
+    high_to_low = CWDataset.generate_high_to_low_mapping(free_low_level, free_mappings)
     min_concept = min(free_low_level.values())
     max_concept = max(free_low_level.values())
 
@@ -124,7 +124,7 @@ def main():
     # Create the model. If you are using the default backbone, make sure to set vanilla pretrain to True.
     model = res50(
         whitened_layers=CONFIG["cw_layer"]["whitened_layers"],
-        concept_mat=concept_mat,
+        high_to_low=high_to_low,
         cw_lambda=CONFIG["cw_layer"]["cw_lambda"],
         activation_mode=CONFIG["cw_layer"]["activation_mode"],
         pretrained_model=CONFIG["directories"]["model"],
@@ -143,6 +143,16 @@ def main():
     # Distribute batches across all GPUs with DataParallel
     model = torch.nn.DataParallel(model, device_ids=list(range(CONFIG["ngpu"])))
     model = model.cuda()
+
+    # =========================
+    # Print Training Parameters
+    # =========================
+    print(
+        "Training parameters:\n"
+        f"{yaml.dump(CONFIG['cw_layer'], default_flow_style=False)}\n\n"
+        f"{yaml.dump(CONFIG['train'], default_flow_style=False)}\n\n"
+        f"{yaml.dump(CONFIG['optim'], default_flow_style=False)}\n\n"
+    )
 
     # =============
     # Training Loop

@@ -5,6 +5,7 @@ import os
 import json
 import yaml
 import time
+import textwrap
 import pandas as pd
 from PIL import ImageFile
 from sklearn.model_selection import train_test_split
@@ -149,9 +150,9 @@ def main():
     # =========================
     print(
         "Training parameters:\n"
-        f"{yaml.dump(CONFIG['cw_layer'], default_flow_style=False)}\n\n"
-        f"{yaml.dump(CONFIG['train'], default_flow_style=False)}\n\n"
-        f"{yaml.dump(CONFIG['optim'], default_flow_style=False)}\n\n"
+        f"cw_layer:\n{textwrap.indent(yaml.dump(CONFIG['cw_layer'], default_flow_style=False), '\t')}\n\n"
+        f"train:\n{textwrap.indent(yaml.dump(CONFIG['train'], default_flow_style=False), '\t')}\n\n"
+        f"optim:\n{textwrap.indent(yaml.dump(CONFIG['optim'], default_flow_style=False), '\t')}\n"
     )
 
     # =============

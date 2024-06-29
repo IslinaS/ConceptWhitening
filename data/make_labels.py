@@ -36,6 +36,17 @@ def main():
     train.to_parquet(train_path, index=None)
     test.to_parquet(test_path, index=None)
 
+    # TODO: patch for weird dimension issue, to be removed
+    for image_path in train['path']:
+    # Open the image file
+        with Image.open(image_path) as img:
+            # Check if image dimensions are not 224x224
+            if img.size != (224, 224):
+                # Resize the image
+                img = img.resize((224, 224), Image.Resampling.LANCZOS)
+                # Optionally save the resized image back to disk
+                img.save(image_path)
+
 
 def read_files(cub_path, test_classes, write_json=False):
     """

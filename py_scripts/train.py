@@ -149,10 +149,10 @@ def main():
     # Print Training Parameters
     # =========================
     print(
-        "Training parameters:\n"
-        f"cw_layer:\n{textwrap.indent(yaml.dump(CONFIG['cw_layer'], default_flow_style=False), '\t')}\n\n"
-        f"train:\n{textwrap.indent(yaml.dump(CONFIG['train'], default_flow_style=False), '\t')}\n\n"
-        f"optim:\n{textwrap.indent(yaml.dump(CONFIG['optim'], default_flow_style=False), '\t')}\n"
+        "\nTraining parameters:\n"
+        f"cw_layer:\n{textwrap.indent(yaml.dump(CONFIG['cw_layer'], default_flow_style=False), '    ')}\n"
+        f"train:\n{textwrap.indent(yaml.dump(CONFIG['train'], default_flow_style=False), '    ')}\n"
+        f"optim:\n{textwrap.indent(yaml.dump(CONFIG['optim'], default_flow_style=False), '    ')}"
     )
 
     # =============

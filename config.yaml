@@ -3,9 +3,9 @@ ngpu: 4
 verbose: True
 
 directories:
-  model: "models/pretrained/iNaturalist2018_res50_180epoch.pth"
+  model: "/usr/project/xtmp/cs474_cv/ConceptWhitening/models/pretrained/iNaturalist2018_res50_180epoch.pth"
   data: "datasets/cub200_cw"
-  checkpoint: "models/checkpoints"
+  checkpoint: "/usr/project/xtmp/cs474_cv/ConceptWhitening/models/checkpoints"
   high_concepts: "data/json/high_level.json"
   low_concepts: "data/json/low_level.json"
   mappings: "data/json/mappings.json"
@@ -28,5 +28,5 @@ train:
   train_cw_freq: 20
   epochs: 50
   batch_size: 128
-  workers: 4
-  checkpoint_prefix: "lambda1_june25"
+  workers: 2
+  checkpoint_prefix: "lambda_1_jul3"

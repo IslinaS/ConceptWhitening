@@ -3,27 +3,30 @@ ngpu: 4
 verbose: True
 
 directories:
-  model: "models/pretrained/iNaturalist2018_res50_180epoch.pth"
+  model: "/usr/project/xtmp/cs474_cv/ConceptWhitening/models/pretrained/iNaturalist2018_res50_180epoch.pth"
   data: "datasets/cub200_cw"
-  checkpoint: "models/checkpoints"
+  checkpoint: "/usr/project/xtmp/cs474_cv/ConceptWhitening/models/checkpoints"
   high_concepts: "data/json/high_level.json"
   low_concepts: "data/json/low_level.json"
+  mappings: "data/json/mappings.json"
 
 optim:
-  lr: 0.001
+  lr: 1.0e-3
   momentum: 0.9
-  l2: 0.00001
+  l2: 1.0e-5
   lr_step: 30
   lr_gamma: 0.2
 
 cw_layer:
   whitened_layers: [[0], [0], [0], [0]]
-  cw_lambda: 0.1
+  cw_lambda: 1
+  activation_mode: "pool_max"
 
 train:
+  vanilla: True
   print_freq: 1
-  train_cw_freq: 30
-  epochs: 20
+  train_cw_freq: 20
+  epochs: 50
   batch_size: 128
-  workers: 4
-  checkpoint_prefix: "resnet50cw_june15"
+  workers: 2
+  checkpoint_prefix: "lambda_1_jul3"

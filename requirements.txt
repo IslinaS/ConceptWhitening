@@ -3,10 +3,11 @@ torchvision
 numpy
 scikit-learn
 matplotlib
-Pillow
+pillow
 seaborn
 scikit-image
 scipy
 pandas
-tensorflow
 opencv-python
+pyarrow
+pyyaml

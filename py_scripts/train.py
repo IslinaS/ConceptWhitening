@@ -1,10 +1,11 @@
-from ..data.datasets import BackboneDataset, CWDataset
-from ..models.ResNet50 import res50
+from data.datasets import BackboneDataset, CWDataset
+from models.ResNet50 import ResNet, res50
 
 import os
 import json
 import yaml
 import time
+import textwrap
 import pandas as pd
 from PIL import ImageFile
 from sklearn.model_selection import train_test_split
@@ -24,34 +25,6 @@ def main():
     with open("config.yaml", 'r') as file:
         CONFIG = yaml.safe_load(file)
 
-    # Set the random seeds for reproducibility
-    torch.manual_seed(CONFIG["seed"])
-    torch.cuda.manual_seed_all(CONFIG["seed"])
-
-    # https://stackoverflow.com/questions/58961768/set-torch-backends-cudnn-benchmark-true-or-not
-    cudnn.benchmark = True
-
-    # Create the model. If you are using the default backbone, make sure to set vanilla pretrain to True.
-    model = res50(
-        whitened_layers=CONFIG["cw_layer"]["whitened_layers"],
-        cw_lambda=CONFIG["cw_layer"]["cw_lambda"],
-        pretrained_model=CONFIG["directories"]["model"]
-    )
-
-    # Define loss, optimizer, and scheduler
-    criterion = nn.CrossEntropyLoss().cuda()
-    # TODO: Other optimizers?
-    optimizer = torch.optim.SGD(
-        model.parameters(),
-        lr=CONFIG["optim"]["lr"],
-        momentum=CONFIG["optim"]["momentum"],
-        weight_decay=CONFIG["optim"]["l2"])
-    scheduler = StepLR(optimizer, step_size=CONFIG["optim"]["lr_step"], gamma=CONFIG["optim"]["lr_gamma"])
-
-    # Distribute batches across all GPUs with DataParallel
-    model = torch.nn.DataParallel(model, device_ids=list(range(CONFIG["ngpu"])))
-    model = model.cuda()
-
     # ============
     # Data Loading
     # ============
@@ -68,10 +41,13 @@ def main():
     # Load the low and high level concept dictionaries
     low_path = os.path.abspath(CONFIG["directories"]["low_concepts"])
     high_path = os.path.abspath(CONFIG["directories"]["high_concepts"])
+    mappings_path = os.path.abspath(CONFIG["directories"]["mappings"])
     with open(low_path, "r") as file:
         low_level = json.load(file)
     with open(high_path, "r") as file:
         high_level = json.load(file)
+    with open(mappings_path, "r") as file:
+        mappings = json.load(file)
 
     # Make the backbone and concept loaders. We only need a concept loader for the train set.
     # Train
@@ -82,7 +58,7 @@ def main():
         ),
         batch_size=CONFIG["train"]["batch_size"],
         shuffle=True,
-        num_workers=4
+        num_workers=CONFIG["train"]["workers"]
     )
 
     # Validation
@@ -108,15 +84,75 @@ def main():
     )
 
     # Concept
-    concepts = CWDataset(
-        train_df, high_level, low_level, n_free=0,
-        transform=transforms.Compose([transforms.ToTensor()])
+    # First, we need to add the free concepts using CWDataset's static method
+    train_df_free, free_low_level, free_mappings = CWDataset.make_free_concepts(train_df, 2, low_level,
+                                                                                high_level, mappings)
+    high_to_low = CWDataset.generate_high_to_low_mapping(free_low_level, free_mappings)
+    min_concept = min(free_low_level.values())
+    max_concept = max(free_low_level.values())
+
+    concept_loaders = []
+    for i in range(min_concept, max_concept + 1):
+        concepts = CWDataset(
+            train_df_free, low_level, mode=i,
+            transform=transforms.Compose([transforms.ToTensor()])
+        )
+
+        # Sometimes concepts are not in the training set, so we temporarily skip them.
+        # This can be better addressed in the future.
+        if len(concepts) == 0:
+            continue
+
+        # Notice that num workers is not set. If there are hundreds of concepts,
+        # using lots of workers per concept is not practical.
+        concept_loader = DataLoader(
+            concepts,
+            batch_size=CONFIG["train"]["batch_size"],
+            shuffle=True
+        )
+        concept_loaders.append(concept_loader)
+
+    # ==============
+    # Model Creation
+    # ==============
+    # Set the random seeds for reproducibility
+    torch.manual_seed(CONFIG["seed"])
+    torch.cuda.manual_seed_all(CONFIG["seed"])
+
+    # https://stackoverflow.com/questions/58961768/set-torch-backends-cudnn-benchmark-true-or-not
+    cudnn.benchmark = True
+
+    # Create the model. If you are using the default backbone, make sure to set vanilla pretrain to True.
+    model = res50(
+        whitened_layers=CONFIG["cw_layer"]["whitened_layers"],
+        high_to_low=high_to_low,
+        cw_lambda=CONFIG["cw_layer"]["cw_lambda"],
+        activation_mode=CONFIG["cw_layer"]["activation_mode"],
+        pretrained_model=CONFIG["directories"]["model"],
+        vanilla_pretrain=CONFIG['train']['vanilla']
     )
-    concept_loader = DataLoader(
-        concepts,
-        batch_size=CONFIG["train"]["batch_size"],
-        shuffle=True,
-        num_workers=CONFIG["train"]["workers"]
+
+    # Define loss, optimizer, and scheduler
+    criterion = nn.CrossEntropyLoss().cuda()
+    optimizer = torch.optim.SGD(
+        model.parameters(),
+        lr=CONFIG["optim"]["lr"],
+        momentum=CONFIG["optim"]["momentum"],
+        weight_decay=CONFIG["optim"]["l2"])
+    scheduler = StepLR(optimizer, step_size=CONFIG["optim"]["lr_step"], gamma=CONFIG["optim"]["lr_gamma"])
+
+    # Distribute batches across all GPUs with DataParallel
+    model = torch.nn.DataParallel(model, device_ids=list(range(CONFIG["ngpu"])))
+    model = model.cuda()
+
+    # =========================
+    # Print Training Parameters
+    # =========================
+    print(
+        "\nTraining parameters:\n"
+        f"cw_layer:\n{textwrap.indent(yaml.dump(CONFIG['cw_layer'], default_flow_style=False), '  ')}\n"
+        f"train:\n{textwrap.indent(yaml.dump(CONFIG['train'], default_flow_style=False), '  ')}\n"
+        f"optim:\n{textwrap.indent(yaml.dump(CONFIG['optim'], default_flow_style=False), '  ')}"
     )
 
     # =============
@@ -126,11 +162,11 @@ def main():
         print("Starting training...")
 
     best_acc = 0
+    best_path = None
     accs = []
     for epoch in range(CONFIG["train"]["epochs"]):
         # Train and validate an epoch
-        _, train_acc, train_duration = train(train_loader, concept_loader, concepts, model, criterion, optimizer)
-        # TODO: add a concept trainer here if the epoch is a multiple of 10 or something?
+        _, train_acc, train_duration = train(train_loader, concept_loaders, model, criterion, optimizer)
         accs.append(validate(val_loader, model, criterion)[1])
 
         # Learning rate scheduler step. Every 30 epochs, learning rate lr is divided by 5.
@@ -146,6 +182,8 @@ def main():
         if is_best:
             best_acc = avg_acc
             # We'll need to reload the best model, so save the path to its checkpoint
+            if best_path:
+                os.remove(best_path)  # If this is not the first epoch, overwrite the previous path
             best_path = save_checkpoint({"epoch": epoch + 1, "state_dict": model.state_dict(), "acc": avg_acc})
 
         if (CONFIG["verbose"]) and ((epoch + 1) % CONFIG["train"]["print_freq"] == 0):
@@ -164,7 +202,13 @@ def main():
         print(f"Training completed. Final Accuracy: {val_acc:.4f}")
 
 
-def train(train_loader, concept_loader, concept_dataset, model, criterion, optimizer):
+def train(
+    train_loader: DataLoader,
+    concept_loaders: list[DataLoader],
+    model: nn.DataParallel[ResNet],
+    criterion: nn.modules.loss._Loss,
+    optimizer: torch.optim.Optimizer
+):
     """
     Trains the model for one epoch.
     """
@@ -174,36 +218,39 @@ def train(train_loader, concept_loader, concept_dataset, model, criterion, optim
     model.train()
 
     for i, (input, target) in enumerate(train_loader):
-        # BUG: This is important, target is offset by 1 in CUB
+        input: torch.Tensor
+        target: torch.Tensor
+        # NOTE: CUB dataset labels start at 1, hence this line. If your target starts at zero, this needs to be removed!
         target = target - 1
 
         # Train for concept whitening loss once every 30 batches.
         if (i + 1) % CONFIG["train"]["train_cw_freq"] == 0:
             model.eval()
             with torch.no_grad():
-                # Update the gradient matrix G for the concept whitening layers
-                for i in range(1, concept_dataset.n_concepts + 1):
-                    concept_dataset.set_mode(i)
-                    model.module.change_mode(i)
+                # Update the gradient matrix G for the concept whitening layers.
+                # Each concept in the CWLayer is indexed by its corresponding position in concept_loaders.
+                for idx, concept_loader in enumerate(concept_loaders):
+                    model.module.change_mode(idx)
 
                     for batch, region in concept_loader:
+                        batch: torch.Tensor
                         batch = batch.cuda()
                         model(batch, region, batch.shape[2])  # batch.shape[2] gives the original x dimension
                         break  # only sample one batch for each concept
 
-                model.update_rotation_matrix()
+                model.module.update_rotation_matrix()
                 # Stop computing the gradient for concept whitening.
                 # mode=-1 is the default mode that skips gradient computation.
                 model.module.change_mode(-1)
             model.train()
 
         # Move them to CUDA, assumes CUDA access
-        target = target.cuda()
         input = input.cuda()
+        target = target.cuda()
 
         # Forward pass + loss computation
         output = model(input)
-        loss = criterion(output, target)
+        loss: torch.Tensor = criterion(output, target)
 
         # Performance metrics
         total_loss += loss.item()
@@ -221,7 +268,11 @@ def train(train_loader, concept_loader, concept_dataset, model, criterion, optim
     return avg_loss, acc, end - start
 
 
-def validate(data_loader, model, criterion):
+def validate(
+    data_loader: DataLoader,
+    model: nn.DataParallel[ResNet],
+    criterion: nn.modules.loss._Loss
+):
     """
     Gradient-free forward pass for the current model.
     """
@@ -231,7 +282,10 @@ def validate(data_loader, model, criterion):
 
     with torch.no_grad():
         for input, target in data_loader:
-            # BUG: This is important, target is offset by 1 in CUB
+            input: torch.Tensor
+            target: torch.Tensor
+            # NOTE: Cub datasets labels start at 1, hence this line. If your target starts at zero,
+            # this needs to be removed!
             target = target - 1
 
             # Moves them to CUDA, assumes CUDA access
@@ -240,7 +294,7 @@ def validate(data_loader, model, criterion):
 
             # Forward pass
             output = model(input)
-            loss = criterion(output, target)
+            loss: torch.Tensor = criterion(output, target)
 
             # Performance metrics
             total_loss += loss.item()
@@ -263,12 +317,12 @@ def save_checkpoint(state):
         str: Path to the saved model file.
     """
     path = os.path.join(CONFIG["directories"]["checkpoint"],
-                        f"{CONFIG["train"]["checkpoint_prefix"]}_epoch_{state['epoch']}_acc_{state['acc']:.4f}.pth")
+                        f"{CONFIG['train']['checkpoint_prefix']}_epoch_{state['epoch']}_acc_{state['acc']:.4f}.pth")
     torch.save(state["state_dict"], path)
     return path
 
 
-def top_k_correct(output, target, k=1):
+def top_k_correct(output, target: torch.Tensor, k=1):
     """
     See how many predictions were in the top k predicted classes.
     Assumes target is already adjusted to be -1 for CUB.

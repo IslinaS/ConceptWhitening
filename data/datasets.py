@@ -14,10 +14,15 @@ class BackboneDataset(Dataset):
     The backbone dataset on a __getitem__ call will return the image and the class label.
     This is distinct from the CWDataset, which returns different attributes.
     """
-    def __init__(self, annotations, transform=None):
+    def __init__(self, annotations: pd.DataFrame, transform=None):
         """
         Annotation file is crucial. It is the parquet with columns image_id and class (plus others).
         There can be any number of classes and image_ids here.
+
+        Params:
+        -------
+        - annotations (pd.DataFrame): Dataframe of labeled concepts
+        - transform (TorchVision Transform): Transform to be applied to each image (mainly to make it a tensor)
         """
         self.annotations = annotations.copy()
         self.annotations = self.annotations.drop_duplicates(subset='image_id', keep='first')
@@ -43,99 +48,51 @@ class CWDataset(Dataset):
     """
     The CW dataset on a __getitem__ call will return the image and the bounding box for the concept.
     Unlike BackboneDataset, this does NOT return the class labels.
-    """
-    def __init__(self, annotations, high_level, low_level, n_free=2, transform=None):
-        """
-        Annotation file is crucial. It is the parquet with columns image_id and class (plus others).
-        For the CWDataset, it must ONLY contain rows with the same value for.
 
-        This dataset supports filtering for a specific concept via the set_mode method.
+    Each CW dataset is associated with only one concept, and one concept per data loader is needed.
+    """
+    def __init__(self, annotations: pd.DataFrame, low_level, mode, transform=None):
         """
-        # Data itself. We make sure we only have original and unaugmented images.
+        Initialize a CWDataset.
+
+        Params:
+        -------
+        - annotations (pd.DataFrame): Dataframe of labeled concepts
+        - low_level (dictionary): Mapping of each low level concept to an index number. See data/json/low_level.json.
+        - mode (int): Concept index to keep
+        - transform (TorchVision Transform): Transform to be applied to each image (mainly to make it a tensor)
+        """
+        # Data itself. We make sure we only have original and unaugmented images
+        # since concepts are not labeled in augmented ones.
         self.annotations = annotations.copy()
-        self.annotations = self.annotations[self.annotations["augment"] == 0]
+        self.annotations = self.annotations[self.annotations["augmented"] == 0]
 
         # Used to create unknown concepts
-        self.high_level = high_level
         self.low_level = low_level
-        self.n_free = n_free
-        self.n_concepts = 0  # This is updated
 
         # Used for making images tensors
         self.transform = transform
 
-        # Configuring the free concepts
-        self._make_free_concepts()
+        # Make our low level concepts indices, then filter the data to only include those
         self._index_low_level()
-        self._set_n_concepts()
-
-        # Set a default mode, this initializes filtered_df
-        self.set_mode(1)
-
-    def set_mode(self, mode):
-        """
-        This determines which concept is going to be loaded.
-        When set to a value, only the concept associated with that value will be available to __getitem__().
-
-        Does NOT enforce illegal values! Do NOT call after putting it into a data loader.
-        """
-        self.mode = mode
-        self.filtered_df = self.annotations[self.annotations["low_level"] == self.mode]
-
-    def _set_n_concepts(self):
-        """
-        Store the number of low level concepts we have for later use.
-        """
-        self.n_concepts = len(self.low_level)
-
-    def _make_free_concepts(self):
-        """
-        Responsible for allocating the "free" low level concepts to each high level concepts.
-        This is performed by adding n "free" low level concepts to its associated high level
-        concept in all data points where that high level concept was visible.
-        """
-        # Only need to do this if we have free concepts
-        if self.n_free == 0:
-            return
-
-        # Create new rows for each high_level, n_free times
-        new_rows = []
-        new_mode = max(self.low_level.values()) + 1  # This will be the new "index" of the concept
-
-        for hl in self.high_level.values():
-            # Filter rows that include the current high_level. We get 1 row per image ID so we can copy its other values
-            hl_rows = self.annotations[self.annotations['high_level'] == hl].copy()
-            hl_rows = hl_rows.drop_duplicates(subset='image_id', keep='first')
-
-            # Generate n_free new low_level concepts for each high_level
-            for i in range(1, self.n_free + 1):
-                new_low_level = f"{hl}_free_{i}"
-                modified_rows = hl_rows.copy()
-                modified_rows['low_level'] = new_low_level
-                new_rows.append(modified_rows)
-
-                # Add the new concept to the low_level dict for indexing later
-                self.low_level[new_low_level] = new_mode
-                new_mode += 1
-
-        # Concatenate all new rows to the original annotations dataframe
-        if new_rows:
-            new_rows_df = pd.concat(new_rows, ignore_index=True)
-            self.annotations = pd.concat([self.annotations, new_rows_df], ignore_index=True)
+        self.annotations = self.annotations[self.annotations["low_level"] == mode]
 
     def _index_low_level(self):
         """
         Replace the names of the low level concepts with their index values.
         """
-        self.annotations["low_level"] = self.annotations["low_level"].replace(self.low_level)
+        # TODO: Fix warning associated with this
+        # FutureWarning: Downcasting behavior in `replace` is deprecated and will be removed in a future version.
+        # To retain the old behavior, explicitly call `result.infer_objects(copy=False)`.
+        # To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
+        self.annotations["low_level"] = self.annotations["low_level"].replace(self.low_level).infer_objects(copy=False)
 
     def __len__(self):
-        return self.filtered_df.shape[0]
+        return len(self.annotations)
 
     def __getitem__(self, idx):
-        # Only select items that have the current specified low level concept
-        path = self.filtered_df["path"].iloc[idx]
-        bbox = self.filtered_df["coords"].iloc[idx]
+        path = self.annotations["path"].iloc[idx]
+        bbox = self.annotations["coords"].iloc[idx]
 
         image = Image.open(path).convert("RGB")
 
@@ -143,3 +100,87 @@ class CWDataset(Dataset):
             image = self.transform(image)
 
         return image, bbox
+
+    @staticmethod
+    def make_free_concepts(annotations: pd.DataFrame, n_free, low_level: dict, high_level: dict, mappings: dict):
+        """
+        Responsible for allocating the "free" low level concepts to each high level concept.
+        This is performed by adding `n_free` "free" low level concepts to its associated high level
+        concept in all data points where that high level concept was visible.
+
+        This is a STATIC method and is used to preprocess the data.
+
+        Params:
+        -------
+        - annotations (pd.DataFrame): The annotated data
+        - n_free (int): Number of "free" low level concepts to allocate to each high level concept
+        - low_level (dictionary): Mapping of each low level concept to an index number. See data/json/low_level.json.
+        - high_level (dictionary): Mapping of an index to a high level concept. See data/json/high_level.json.
+        - mappings (dictionary): Mapping of each low level concept to a high level concept. See data/json/mappings.json.
+
+        Returns:
+        --------
+        - pd.DataFrame: The original annotations df, but with the free concept rows added
+        - dictionary: The original low_level dict, but with the free concept mappings added
+        - dictionary: The original mappings dict, but with the free concept mappings added
+        """
+        # Only need to do this if we have free concepts
+        if n_free == 0:
+            return
+
+        # Create new rows for each high_level, n_free times
+        new_rows = []
+        new_mode = max(low_level.values()) + 1  # This will be the new "index" of the concept
+
+        for hl in set(high_level.values()):
+            # Filter rows that include the current high_level. We get 1 row per image ID so we can copy its other values
+            hl_rows: pd.DataFrame = annotations[annotations['high_level'] == hl].copy()
+            hl_rows = hl_rows.drop_duplicates(subset='image_id', keep='first')
+
+            # Generate n_free new low_level concepts for each high_level
+            for i in range(1, n_free + 1):
+                new_low_level = f"{hl}_free_{i}"
+                modified_rows = hl_rows.copy()
+                modified_rows['low_level'] = new_low_level
+                new_rows.append(modified_rows)
+
+                # Add the new concept to the low_level dict for indexing later
+                low_level[new_low_level] = new_mode
+                mappings[new_low_level] = hl
+                new_mode += 1
+
+        # Concatenate all new rows to the original annotations dataframe
+        if new_rows:
+            new_rows_df = pd.concat(new_rows, ignore_index=True)
+            annotations = pd.concat([annotations, new_rows_df], ignore_index=True)
+
+        return annotations, low_level, mappings
+
+    @staticmethod
+    def generate_high_to_low_mapping(low_level: dict, mappings: dict):
+        """
+        Generate the mapping from each high level concept (by name) to low level concepts (by index) belonging to that
+        high level concept. The concepts are indexed based on their order in `low_level`, but translated
+        to start from index 0. This mapping is used to generate the concept indicator matrix and the latent space mappings in the CW layer.
+
+        This is a STATIC method and is used to preprocess the data.
+
+        Params:
+        -------
+        - low_level (dictionary): Mapping of each low level concept to an index number. See data/json/low_level.json.
+        - mappings (dictionary): Mapping of each low level concept to a high level concept. See data/json/mappings.json.
+
+        Returns:
+        --------
+        - dictionary: Mapping from high level concept to low level concept
+        """
+        min_concept = min(low_level.values())
+
+        # Reverse the mappings dictionary to map high level concept to low level indices
+        high_to_low: dict[str, list[int]] = {}
+        for low_concept, high_concept in mappings.items():
+            if high_concept not in high_to_low:
+                high_to_low[high_concept] = []
+            high_to_low[high_concept].append(low_level[low_concept] - min_concept)
+
+        return high_to_low

@@ -12,8 +12,9 @@ from py_scripts.redact import redact
 
 class IterNorm(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, *args, **kwargs):
-        X, running_mean, running_wmat, nc, ctx.T, eps, momentum, training = args
+    def forward(ctx: torch.autograd.function.FunctionCtx, X: torch.Tensor, running_mean: torch.Tensor,
+                running_wmat: torch.Tensor, nc: int, T: int, eps: float, momentum: float, training: bool, **kwargs):
+        ctx.T = T
         # change N x C x H x W to (G x D) x (N x H x W), i.e. g*d*m
         ctx.g = X.size(1) // nc
         x = X.transpose(0, 1).contiguous().view(ctx.g, nc, -1)
@@ -25,7 +26,7 @@ class IterNorm(torch.autograd.Function):
             xc = x - mean
             saved.append(xc)
             # calculate covariance matrix
-            P = [None] * (ctx.T + 1)
+            P: list[torch.Tensor] = [None] * (ctx.T + 1)
             P[0] = torch.eye(d).to(X).expand(ctx.g, d, d)
             Sigma = torch.baddbmm(eps, P[0], 1. / m, xc, xc.transpose(1, 2))
             # reciprocal of trace of Sigma: shape [g, 1, 1]
@@ -93,15 +94,17 @@ class IterNormRotation(torch.nn.Module):
     Because the concept activation is calculated based on a feature map, which is a matrix,
     there are multiple ways to calculate the activation, denoted by activation_mode.
     """
-    def __init__(self, num_features, num_channels=None, T=10, dim=4, eps=1e-5, momentum=0.05, lamb=0.1,
-                 affine=False, mode=-1, activation_mode='pool_max', *args, **kwargs):
+    def __init__(self, num_features, concept_mat: torch.Tensor, latent_mappings, num_channels=None, T=10, dim=4, 
+                 eps=1e-5, momentum=0.05, cw_lambda=0.1, affine=False, mode=-1, activation_mode='pool_max'):
         super(IterNormRotation, self).__init__()
         assert dim == 4, 'IterNormRotation does not support 2D'
         self.T = T
         self.eps = eps
         self.momentum = momentum
         self.num_features = num_features
-        self.lamb = lamb
+        self.concept_mat = concept_mat
+        self.latent_mappings = latent_mappings
+        self.cw_lambda = cw_lambda
         self.affine = affine
         self.dim = dim
         self.mode = mode
@@ -146,8 +149,8 @@ class IterNormRotation(torch.nn.Module):
         The update uses Cayley transform to make sure R is always orthonormal.
         """
         with torch.no_grad():
-            G = self.sum_G/self.counter.reshape(-1, 1)
-            R = self.running_rot.clone()
+            G: torch.Tensor = self.sum_G / self.counter.reshape(-1, 1)
+            R: torch.Tensor = self.running_rot.clone()
 
             for _ in range(2):
                 # constants
@@ -173,10 +176,10 @@ class IterNormRotation(torch.nn.Module):
 
                     if F_Y_tau > F_X + c1 * tau * dF_0 + 1e-18:
                         beta = tau
-                        tau = (beta + alpha)/2
+                        tau = (beta + alpha) / 2
                     elif dF_tau + 1e-18 < c2 * dF_0:
                         alpha = tau
-                        tau = (beta + alpha)/2
+                        tau = (beta + alpha) / 2
                     else:
                         break
 
@@ -235,7 +238,8 @@ class IterNormRotation(torch.nn.Module):
                     # bdhw
                     maxpool_value, maxpool_indices = self.maxpool(X_test)
                     # bdhw
-                    X_test_unpool = self.maxunpool(maxpool_value, maxpool_indices, output_size=X_test.size())
+                    X_test_unpool: torch.Tensor = self.maxunpool(maxpool_value, maxpool_indices,
+                                                                 output_size=X_test.size())
                     maxpool_bool = ((X_test == X_test_unpool) & (X_test != 0)).to(X_redacted)
                     # bd
                     X_activated = (X_redacted * maxpool_bool).sum((2, 3)) / maxpool_bool.sum((2, 3))
@@ -244,7 +248,9 @@ class IterNormRotation(torch.nn.Module):
                 num_concepts = self.concept_mat.size()[0]
                 concept_mask = (
                     F.pad(self.concept_mat[self.mode], (0, self.num_channels - num_concepts), mode='constant', value=0)
-                ).unsqueeze(1)
+                ).unsqueeze(0)
+
+                concept_mask = concept_mask.cuda()
 
                 X_rot = torch.einsum('bc,dc->bd', X_activated, self.running_rot)
                 # bd
@@ -256,14 +262,15 @@ class IterNormRotation(torch.nn.Module):
                 # Calculating the gradient matrix of the concept activation loss
                 # For grad and self.sum_G, each ROW corresponds to a concept
                 low_grad = -X_activated.mean((0,))
+                grad_mode = self.latent_mappings[self.mode]
                 # dc, high_grad
-                grad = -(torch.einsum('bd,bm->bmd', X_activated, max_bool)).mean((0,)) * self.lamb / \
+                grad = -(torch.einsum('bd,bm->bmd', X_activated, max_bool)).mean((0,)) * self.cw_lambda / \
                     self.concept_mat[self.mode].sum()
-                grad[self.mode, :] += low_grad + grad[self.mode, :]
+                grad[grad_mode, :] += low_grad + grad[grad_mode, :]
 
                 # Updating the gradient matrix G
                 self.sum_G = self.momentum * grad + (1. - self.momentum) * self.sum_G
-                self.counter[self.mode] += 1
+                self.counter[grad_mode] += 1
 
         # We set mode = -1 when we don't need to update G. For example, when we train for main objective
         X_hat = torch.einsum('bchw,dc->bdhw', X_hat, self.running_rot)

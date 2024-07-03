@@ -21,13 +21,14 @@ It's recommended to use a virtual environment to install and manage the many Pyt
 
     ```bash
     python3 -m venv .venv
+    source .venv/bin/activate
     pip3 install -r requirements.txt
     ```
-2. If you have not already done so, set the variable   `VENV_PATH` in `secrets.txt` to be the **absolute** path to your virtual environment.
+2. If you have not already done so, set the variable `VENV_PATH` in `secrets.txt` to be the **absolute** path to your virtual environment.
 
 ### Prepare the CUB dataset for training
 
-1. Download and extract the CUB dataset [here](https://www.vision.caltech.edu/datasets/cub_200_2011/).
+1. Download and extract the CUB dataset [here](https://data.caltech.edu/records/65de6-vp158). Make sure to move or copy the file `attributes.txt` inside the `attributes` directory inside the dataset if it is not already there.
 2. Set the variable `CUB_PATH` in `secrets.txt` to be the **absolute** path to your downloaded dataset.
 3. In this directory, run
     ```bash

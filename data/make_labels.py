@@ -1,6 +1,7 @@
 import os
 import json
 import pyarrow  # Needed for parquet
+import argparse
 import pandas as pd
 import numpy as np
 
@@ -9,32 +10,55 @@ from PIL import Image, ImageFilter
 
 """
 The objective here is to make the parquet that will be of format:
-image id, class, high level concept, low level concept, coords, certainty
+'image_id', 'certainty_id', 'class', 'path', 'is_train', 'low_level', 'high_level', 'coords', 'bbox', 'augment'
 
 Here the high level concept is the part, and low level the attribute.
-Coords are computed from a preset window size, this can be changed easily.
+Coords are computed from a preset window size, this can be changed easily in the read_file function.
 """
 
 
 def main():
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="Read files from a CUB directory to create datasets.")
+    parser.add_argument('test_classes', type=str, nargs='*', help='List of test classes as their ID numbers')
+    parser.add_argument('--write_json', action='store_true', help='Flag to write output as JSON')
+    args = parser.parse_args()
+
     CUB_PATH = os.getenv("CUB_PATH")
     train_path = os.path.join(CUB_PATH, "datasets/cub200_cw/train.parquet")
     test_path = os.path.join(CUB_PATH, "datasets/cub200_cw/test.parquet")
 
-    train, test = read_files(CUB_PATH)
+    train, test = read_files(CUB_PATH, args.test_classes, args.write_json)
     train = crop_and_augment(train, CUB_PATH)
-    # test = crop_and_augment(test, CUB_PATH)
+    test = crop_and_augment(test, CUB_PATH)
 
     train["image_id"] = train['image_id'].astype(str)
     train.to_parquet(train_path, index=None)
-    # test.to_parquet(test_path, index=None)
+    test.to_parquet(test_path, index=None)
+
+    # TODO: patch for weird dimension issue, to be removed
+    for image_path in train['path']:
+    # Open the image file
+        with Image.open(image_path) as img:
+            # Check if image dimensions are not 224x224
+            if img.size != (224, 224):
+                # Resize the image
+                img = img.resize((224, 224), Image.Resampling.LANCZOS)
+                # Optionally save the resized image back to disk
+                img.save(image_path)
 
 
-def read_files(cub_path):
+def read_files(cub_path, test_classes, write_json=False):
+    """
+    Read files navigates an unaltered cub directory and creates a train and test dataset.
+    Test classes are classes that are always witheld for the test set (used to test concepts).
+    """
     # Low Level Concepts + Certainty
+    # Skip bad lines since there is an issue with image 2275 here
     low_level_path = os.path.join(cub_path, "attributes/image_attribute_labels.txt")
     df = pd.read_csv(low_level_path, delim_whitespace=True, header=None,
-                     names=['image_id', 'attribute_id', 'is_present', 'certainty_id', 'temp'])
+                     names=['image_id', 'attribute_id', 'is_present', 'certainty_id', 'temp'],
+                     on_bad_lines='skip')
     df = df[df["is_present"] == 1]  # Remove not present concepts
     df = df.drop(columns=["is_present", "temp"], axis=1)
 
@@ -62,7 +86,7 @@ def read_files(cub_path):
 
     # Low level concept IDs
     low_level = {}
-    low_path = os.path.join(cub_path, "attributes.txt")
+    low_path = os.path.join(cub_path, "attributes/attributes.txt")
     with open(low_path, "r") as file:
         for line in file:
             vals = line.split(" ")
@@ -73,14 +97,14 @@ def read_files(cub_path):
     df = df.drop(columns=['attribute_id'])
 
     # Also write a json dictionary to map low level concepts to an index
-    """
-    rev = {value: key for key, value in low_level.items()}
-    with open("low_level.json", 'w') as json_file:
-        json.dump(rev, json_file, indent=4)
-    """
+    if write_json:
+        rev = {value: key for key, value in low_level.items()}
+        json_path = os.path.abspath("data/json/low_level.json")
+        with open(json_path, 'w') as json_file:
+            json.dump(rev, json_file, indent=4)
 
     # Low to High level concept mapping
-    mapping_path = os.path.abspath("data/json_files/mappings.json")
+    mapping_path = os.path.abspath("data/json/mappings.json")
     with open(mapping_path, "r") as file:
         mappings = json.load(file)
     df['high_level'] = df['low_level'].map(mappings)
@@ -93,7 +117,7 @@ def read_files(cub_path):
             vals = line.split(" ")
             concept_id = int(vals[0])
             concept = vals[1:]
-            # Sometimes concepts are left/right. This merges them into one high level part
+            # Sometimes concepts are left/right. This merges them into one high level part.
             if len(concept) > 1:
                 concept = concept[1]
             else:
@@ -102,32 +126,32 @@ def read_files(cub_path):
             high_level[concept_id] = concept
 
     # Also write the high level json mapping
-    """
-    with open("high_level.json", 'w') as json_file:
-        json.dump(high_level, json_file, indent=4)
-    """
+    if write_json:
+        json_path = os.path.abspath("data/json/high_level.json")
+        with open(json_path, 'w') as json_file:
+            json.dump(high_level, json_file, indent=4)
 
     # High Level Locations
-    # Redact handles out of bounds values, so for now the coords can be out of bounds
-    # Depending on how many concepts are visible, we can infer how zoomed an image is
-    # More zoomed out, smaller box size
+    # Redact handles out of bounds values, so for now the coords can be out of bounds depending on how many concepts
+    # are visible, we can infer how zoomed an image is more zoomed out, smaller box size
     image_id_counts = df['image_id'].value_counts().to_dict()
+    # Manually set box sizes for different high level concepts
     BOX_DIM = {
-        "back": 200,
-        "beak": 120,
-        "belly": 200,
-        "breast": 200,
-        "crown": 120,
-        "forehead": 120,
-        "eye": 75,
-        "leg": 120,
-        "wing": 200,
-        "nape": 75,
-        "tail": 120,
-        "throat": 120
+        "back": 140,
+        "beak": 75,
+        "belly": 140,
+        "breast": 140,
+        "crown": 75,
+        "forehead": 75,
+        "eye": 40,
+        "leg": 75,
+        "wing": 140,
+        "nape": 40,
+        "tail": 75,
+        "throat": 75
     }
 
-    concept_locs = {}
+    concept_locs: dict[int, list[dict]] = {}
     part_path = os.path.join(cub_path, "parts/part_locs.txt")
     with open(part_path, "r") as file:
         for line in file:
@@ -143,9 +167,9 @@ def read_files(cub_path):
             # Have preset sizes for the concepts
             dim = BOX_DIM[part_id]
             num_visible = image_id_counts[img_id]
-            # If it's more zoomed out, make them smaller
+            # If it's more zoomed out (>6 concepts visible), then scale it by 1/2
             if num_visible > 6:
-                delta_x = int(dim * 0.66)
+                delta_x = int(dim * 0.5)
                 delta_y = delta_x
             coords = [x - delta_x, y - delta_y, x + delta_x, y + delta_y]
 
@@ -183,18 +207,20 @@ def read_files(cub_path):
     bbox_df = pd.DataFrame(list(image_bboxes.items()), columns=['image_id', 'bbox'])
     df = pd.merge(df, bbox_df, on=['image_id'], how='left')
 
-    is_train = df["is_train"] == 1
-
     # This is needed to separate the original from the augmented later on
     df["augmented"] = 0
 
+    # Add all test classes to the test set, then split
+    test_class_mask = df["class"].isin(test_classes)
+    df.loc[test_class_mask, 'is_train'] = 0
+    is_train = df["is_train"] == 1
     train_df = df[is_train]
     test_df = df[~is_train]
 
     return train_df, test_df
 
 
-def crop_and_augment(df, base_path, target_size=(224, 224)):
+def crop_and_augment(df: pd.DataFrame, base_path, target_size=(224, 224)):
     augmented_rows = []
     for idx, row in df.iterrows():
 
@@ -221,6 +247,8 @@ def crop_and_augment(df, base_path, target_size=(224, 224)):
         x_scale = target_size[0] / bbox[2]
         y_scale = target_size[1] / bbox[3]
 
+        # When we crop, the new pixel is just relative to where the new bottom left corner is.
+        # We always assume its visible in the bbox since the labels are reliable from amazon turk
         new_coords = [
             int((coords[0] - bbox[0]) * x_scale),
             int((coords[1] - bbox[1]) * y_scale),
@@ -237,7 +265,8 @@ def crop_and_augment(df, base_path, target_size=(224, 224)):
     return pd.concat([df, augmented_df], ignore_index=True)
 
 
-def augment_data(image, original_row, dir_path):
+def augment_data(image: Image.Image, original_row: pd.Series, dir_path):
+    # These are the transformations we do, but can definitely add more
     transformations = {
         'flipped': Image.FLIP_LEFT_RIGHT,
         'rotated': 15,  # degrees
@@ -256,6 +285,7 @@ def augment_data(image, original_row, dir_path):
         else:
             new_image = image.filter(transform)
 
+        # Resize again just in case the size changed (rotation might)
         # This name is super weird, but the reason
         new_path = os.path.join(dir_path, f"{original_row['image_id']}_{suffix}.jpg")
         new_image.save(new_path)

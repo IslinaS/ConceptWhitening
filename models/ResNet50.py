@@ -1,7 +1,10 @@
 import torch
 import torch.nn as nn
+import numpy as np
+import random
 
 from collections import OrderedDict
+from typing import Type
 from models.IterNorm import IterNormRotation as CWLayer
 
 """
@@ -71,14 +74,16 @@ class BottleNeck(nn.Module):
 class ResNet(nn.Module):
     def __init__(
         self,
-        block_type,
+        block_type: Type[BottleNeck],
         num_blocks,
+        high_to_low,
         num_classes=200,
         last_layer_stride=2,
         whitened_layers=[[0], [0], [0], [0]],
         cw_lambda=0.1,
+        activation_mode="pool_max",
         pretrain_loc=None,
-        vanilla_pretrain=True
+        vanilla_pretrain=True  # When true, expects no concept whitening modules
     ):
         super(ResNet, self).__init__()
         self.inplanes = 64
@@ -96,9 +101,7 @@ class ResNet(nn.Module):
             num_blocks[2], 256, stride=2
         )
         self.layer4 = self._make_layer(
-            num_blocks[3],
-            512,
-            stride=last_layer_stride,
+            num_blocks[3], 512, stride=last_layer_stride,
         )
 
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
@@ -112,14 +115,25 @@ class ResNet(nn.Module):
         self.cw_layers: list[CWLayer] = []
         self.BN_DIM = [64, 128, 256, 512]  # This was what was given in the pretrained model
 
+        self.num_low_level = sum([len(high_to_low[high_concept]) for high_concept in high_to_low])
+        self.num_high_level = len(high_to_low)
+
+        self.concept_matrix = self._generate_concept_matrix(high_to_low)
+
         for i in range(4):
             for whitened_layer in whitened_layers[i]:
                 # All params in train_params.yaml can be changed
-                new_cw_layer = CWLayer(self.BN_DIM[i], activation_mode="pool_max", lamb=cw_lambda)
+                new_cw_layer = CWLayer(
+                    num_features=self.BN_DIM[i],
+                    activation_mode=activation_mode,
+                    concept_mat=self.concept_matrix,
+                    latent_mappings=self._generate_latent_mappings(high_to_low, latent_dim=self.BN_DIM[i]),
+                    cw_lambda=cw_lambda
+                )
                 self.layers[i][whitened_layer].bn1 = new_cw_layer
                 self.cw_layers.append(new_cw_layer)
 
-        if pretrain_loc:
+        if pretrain_loc and not vanilla_pretrain:
             self.load_model(pretrain=pretrain_loc)
 
     def change_mode(self, mode):
@@ -142,11 +156,13 @@ class ResNet(nn.Module):
     def load_model(self, pretrain):
         print("Loading backbone pretrain model from {}......".format(pretrain))
         model_dict = self.state_dict()
-        pretrain_dict = torch.load(pretrain)
+        pretrain_dict: dict = torch.load(pretrain)
         pretrain_dict = pretrain_dict["state_dict"] if "state_dict" in pretrain_dict else pretrain_dict
 
         new_dict = OrderedDict()
+
         for key, value in pretrain_dict.items():
+            key: str
             if "cb_block" in key or "rb_block" in key:
                 continue
             if key.startswith("module"):
@@ -171,6 +187,52 @@ class ResNet(nn.Module):
             self.inplanes = planes * self.block.expansion
         return nn.Sequential(*layers)
 
+    def _generate_concept_matrix(self, high_to_low: dict):
+        """
+        Generate a concept indicator matrix, which is a square 0-1 matrix. Each (i, j)-th entry is 1 if
+        the i-th and j-th low level concepts belong to the same high level concept, and 0 otherwise.
+        The concepts are indexed based on their order in `low_level.json`, but translated to start from index 0.
+        This matrix is used to train for concept whitening loss by the CWLayer.
+
+        For example, the concept indicator matrix
+        [[1, 1, 0, 0],
+         [1, 1, 0, 0],
+         [0, 0, 1, 1],
+         [0, 0, 1, 1]]
+        signifies that concepts 0 and 1 are in the same high level concept, and so are concepts 2 and 3.
+
+        Params:
+        -------
+        - high_to_low (dictionary): Mapping from high level concept to low level concept
+
+        Returns:
+        --------
+        - torch.Tensor: The concept indicator matrix
+        """
+        # Create an empty concept matrix of size num_low_level x num_low_level
+        concept_matrix = torch.zeros((self.num_low_level, self.num_low_level), dtype=torch.int)
+
+        # Populate the concept matrix
+        for indices in high_to_low.values():
+            for i in indices:
+                for j in indices:
+                    concept_matrix[i, j] = 1
+
+        return concept_matrix
+    
+    def _generate_latent_mappings(self, high_to_low: dict, latent_dim):
+        random.seed(42)
+
+        indices = np.linspace(0, latent_dim, self.num_high_level + 1, dtype=int)
+        partitions = [range(indices[i], indices[i + 1]) for i in range(self.num_high_level)]
+        latent_mappings = {}
+
+        for i, high_concept in enumerate(high_to_low.keys()):
+            for low_concept in high_to_low[high_concept]:
+                latent_mappings[low_concept] = random.choice(partitions[i])
+
+        return latent_mappings
+
     def forward(self, x, region=None, orig_x_dim=None):
         out = self.conv1(x)
         out = self.bn1(out)
@@ -190,13 +252,16 @@ class ResNet(nn.Module):
         return out
 
 
-def res50(whitened_layers, cw_lambda, pretrained_model=None, vanilla_pretrain=False):
+def res50(whitened_layers, high_to_low, cw_lambda, activation_mode="pool_max",
+          pretrained_model=None, vanilla_pretrain=True):
     return ResNet(
         BottleNeck,
         [3, 4, 6, 3],
         last_layer_stride=2,
         whitened_layers=whitened_layers,
+        high_to_low=high_to_low,
         cw_lambda=cw_lambda,
+        activation_mode=activation_mode,
         pretrain_loc=pretrained_model,
         vanilla_pretrain=vanilla_pretrain
     )

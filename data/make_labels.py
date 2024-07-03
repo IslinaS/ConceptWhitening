@@ -20,7 +20,7 @@ Coords are computed from a preset window size, this can be changed easily in the
 def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Read files from a CUB directory to create datasets.")
-    parser.add_argument('test_classes', type=str, nargs='+', help='List of test classes as their ID numbers')
+    parser.add_argument('test_classes', type=str, nargs='*', help='List of test classes as their ID numbers')
     parser.add_argument('--write_json', action='store_true', help='Flag to write output as JSON')
     args = parser.parse_args()
 

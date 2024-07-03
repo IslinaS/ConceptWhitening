@@ -7,6 +7,8 @@
 #SBATCH --time=96:00:00               # Time limit hrs:min:sec
 #SBATCH --partition=compsci-gpu
 #SBATCH --gres=gpu:4
+#SBATCH --no-requeue
+#SBATCH --open-mode=append
 
 source slurm_scripts/secrets.txt
 source $VENV_PATH/bin/activate

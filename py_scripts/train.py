@@ -162,6 +162,7 @@ def main():
         print("Starting training...")
 
     best_acc = 0
+    best_path = None
     accs = []
     for epoch in range(CONFIG["train"]["epochs"]):
         # Train and validate an epoch
@@ -181,6 +182,8 @@ def main():
         if is_best:
             best_acc = avg_acc
             # We'll need to reload the best model, so save the path to its checkpoint
+            if best_path:
+                os.remove(best_path)  # If this is not the first epoch, overwrite the previous path
             best_path = save_checkpoint({"epoch": epoch + 1, "state_dict": model.state_dict(), "acc": avg_acc})
 
         if (CONFIG["verbose"]) and ((epoch + 1) % CONFIG["train"]["print_freq"] == 0):

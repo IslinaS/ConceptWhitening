@@ -25,6 +25,13 @@ def main():
     with open("config.yaml", 'r') as file:
         CONFIG = yaml.safe_load(file)
 
+    # Set the random seeds for reproducibility
+    torch.manual_seed(CONFIG["seed"])
+    torch.cuda.manual_seed_all(CONFIG["seed"])
+
+    # https://stackoverflow.com/questions/58961768/set-torch-backends-cudnn-benchmark-true-or-not
+    cudnn.benchmark = True
+
     # ============
     # Data Loading
     # ============
@@ -115,13 +122,6 @@ def main():
     # ==============
     # Model Creation
     # ==============
-    # Set the random seeds for reproducibility
-    torch.manual_seed(CONFIG["seed"])
-    torch.cuda.manual_seed_all(CONFIG["seed"])
-
-    # https://stackoverflow.com/questions/58961768/set-torch-backends-cudnn-benchmark-true-or-not
-    cudnn.benchmark = True
-
     # Create the model. If you are using the default backbone, make sure to set vanilla pretrain to True.
     model = res50(
         whitened_layers=CONFIG["cw_layer"]["whitened_layers"],

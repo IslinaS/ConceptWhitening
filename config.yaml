@@ -3,9 +3,10 @@ ngpu: 4
 verbose: True
 
 directories:
-  model: "/usr/project/xtmp/cs474_cv/ConceptWhitening/models/pretrained/iNaturalist2018_res50_180epoch.pth"
-  data: "datasets/cub200_cw"
+  model: "/usr/project/xtmp/cs474_cv/ConceptWhitening/models/checkpoints/lambda_0_jul5_epoch_46_acc_0.8776.pth"
   checkpoint: "/usr/project/xtmp/cs474_cv/ConceptWhitening/models/checkpoints"
+  eval: "/usr/project/xtmp/cs474_cv/ConceptWhitening/eval"
+  data: "datasets/cub200_cw"
   high_concepts: "data/json/high_level.json"
   low_concepts: "data/json/low_level.json"
   mappings: "data/json/mappings.json"
@@ -23,10 +24,15 @@ cw_layer:
   activation_mode: "pool_max"
 
 train:
-  vanilla: True
+  vanilla: False
   print_freq: 1
   train_cw_freq: 20
-  epochs: 50
+  epochs: 0
   batch_size: 128
   workers: 2
-  checkpoint_prefix: "lambda_1_jul3"
+  checkpoint_prefix: "lambda_1_test_jul5"
+
+eval:
+  top_k_concepts: True
+  k_concepts: 10
+  all_layers: False

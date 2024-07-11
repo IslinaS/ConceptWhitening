@@ -1,5 +1,7 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+import torch.utils.hooks as hooks
 import numpy as np
 import random
 
@@ -114,6 +116,8 @@ class ResNet(nn.Module):
         self.layers = [self.layer1, self.layer2, self.layer3, self.layer4]
         self.cw_layers: list[CWLayer] = []
         self.BN_DIM = [64, 128, 256, 512]  # This was what was given in the pretrained model
+   
+        self.hook_handles: list[hooks.RemovableHandle] = []
 
         self.num_low_level = sum([len(high_to_low[high_concept]) for high_concept in high_to_low])
         self.num_high_level = len(high_to_low)
@@ -121,7 +125,7 @@ class ResNet(nn.Module):
         self.concept_matrix = self._generate_concept_matrix(high_to_low)
 
         for i in range(4):
-            for whitened_layer in whitened_layers[i]:
+            for whitened_layer in sorted(whitened_layers[i]):
                 # All params in train_params.yaml can be changed
                 new_cw_layer = CWLayer(
                     num_features=self.BN_DIM[i],
@@ -152,6 +156,72 @@ class ResNet(nn.Module):
         """
         for cw_layer in self.cw_layers:
             cw_layer.update_rotation_matrix()
+
+    def register_hooks(self, hook, all_layers=False):
+        """
+        Register the specified hook on all relevant CW layers.
+
+        Params:
+        -------
+        - hook (Callable): Hook to be registered
+        - all_layers (boolean): Whether to register the hook for all CW layers (True) or just the last layer (False)
+        """
+        relevant_cw_layers = self.cw_layers if all_layers else self.cw_layers[-1:]
+
+        for cw_layer in relevant_cw_layers:
+            self.hook_handles.append(cw_layer.register_forward_hook(hook))
+
+    def remove_hooks(self):
+        """
+        Remove the current hook on all relevant CW layers.
+        """
+        for hook in self.hook_handles:
+            hook.remove()
+
+        self.hook_handles = []
+
+    def top_k_activated_concepts(self, images, k, all_layers=False) -> list[torch.Tensor]:
+        """
+        Examine the top k activated concepts for each image in the batch.
+
+        Params:
+        -------
+        - images (torch.Tensor): Image batch
+        - k (int): Number of top activated concepts to consider
+        - all_layers (boolean): Whether to consider activations for all CW layers (True) or just the last layer (False)
+
+        Returns:
+        --------
+        - list[torch.Tensor - batch_size x k]: The top k activated concepts of each image, for each CW layer
+        """
+        relevant_cw_layers = self.cw_layers if all_layers else self.cw_layers[-1:]
+        top_k_activated_list = []
+        
+        self(images)
+        for cw_layer in relevant_cw_layers:
+            X_activated = cw_layer.current_batch_X_rot_activated
+            top_k_activated = torch.topk(X_activated, k, dim=1)
+            top_k_activated_list.append(top_k_activated)
+
+        return top_k_activated_list
+        
+    @staticmethod
+    def get_X_activated(module: CWLayer, _, _):
+        X_test: torch.Tensor = module.current_batch_X_test.cuda()
+        activation_mode = module.activation_mode
+
+        if activation_mode == 'mean':
+            X_activated = X_test.mean((2, 3))
+        elif activation_mode == 'max':
+            X_activated = X_test.max((2, 3))
+        elif activation_mode == 'pos_mean':
+            pos_bool = (X_test > 0).to(X_test)
+            X_activated = (X_test * pos_bool).sum((2, 3)) / (pos_bool.sum((2, 3)) + 0.0001)
+        elif activation_mode == 'pool_max':
+            X_pooled = F.max_pool2d(X_test, kernel_size=3, stride=3)
+            X_activated = X_pooled.mean((2, 3))
+
+        module.current_batch_X_rot_activated = X_activated
 
     def load_model(self, pretrain):
         print("Loading backbone pretrain model from {}......".format(pretrain))

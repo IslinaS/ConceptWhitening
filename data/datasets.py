@@ -41,7 +41,7 @@ class BackboneDataset(Dataset):
         if self.transform:
             image = self.transform(image)
 
-        return image, label
+        return image, path, label
 
 
 class CWDataset(Dataset):
@@ -157,11 +157,13 @@ class CWDataset(Dataset):
         return annotations, low_level, mappings
 
     @staticmethod
-    def generate_high_to_low_mapping(low_level: dict, mappings: dict):
+    def generate_low_level_cw_mappings(low_level: dict, mappings: dict):
         """
-        Generate the mapping from each high level concept (by name) to low level concepts (by index) belonging to that
-        high level concept. The concepts are indexed based on their order in `low_level`, but translated
-        to start from index 0. This mapping is used to generate the concept indicator matrix and the latent space mappings in the CW layer.
+        In a CW module, the concepts are indexed based on their order in `low_level`,
+        but translated to start from index 0. This function generates two mappings:
+        - From each high level concept (by name) to low level concepts (by index) belonging to that high level concept.
+        This mapping is used to generate the concept indicator matrix and the latent space mappings in the CW layer.
+        - From each translated concept index to its concept name
 
         This is a STATIC method and is used to preprocess the data.
 
@@ -173,14 +175,20 @@ class CWDataset(Dataset):
         Returns:
         --------
         - dictionary: Mapping from high level concept to low level concept
+        - dictionary: Mapping from low level concept index (as used in the CW layer) to its name
         """
         min_concept = min(low_level.values())
 
         # Reverse the mappings dictionary to map high level concept to low level indices
         high_to_low: dict[str, list[int]] = {}
+        low_level_names: dict[int, str] = {}
+
         for low_concept, high_concept in mappings.items():
             if high_concept not in high_to_low:
                 high_to_low[high_concept] = []
-            high_to_low[high_concept].append(low_level[low_concept] - min_concept)
 
-        return high_to_low
+            concept_cw_index = low_level[low_concept] - min_concept
+            high_to_low[high_concept].append(concept_cw_index)
+            low_level_names[concept_cw_index] = low_concept
+
+        return high_to_low, low_level_names

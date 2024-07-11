@@ -126,7 +126,6 @@ class ResNet(nn.Module):
 
         for i in range(4):
             for whitened_layer in sorted(whitened_layers[i]):
-                # All params in train_params.yaml can be changed
                 new_cw_layer = CWLayer(
                     num_features=self.BN_DIM[i],
                     activation_mode=activation_mode,
@@ -157,30 +156,7 @@ class ResNet(nn.Module):
         for cw_layer in self.cw_layers:
             cw_layer.update_rotation_matrix()
 
-    def register_hooks(self, hook, all_layers=False):
-        """
-        Register the specified hook on all relevant CW layers.
-
-        Params:
-        -------
-        - hook (Callable): Hook to be registered
-        - all_layers (boolean): Whether to register the hook for all CW layers (True) or just the last layer (False)
-        """
-        relevant_cw_layers = self.cw_layers if all_layers else self.cw_layers[-1:]
-
-        for cw_layer in relevant_cw_layers:
-            self.hook_handles.append(cw_layer.register_forward_hook(hook))
-
-    def remove_hooks(self):
-        """
-        Remove the current hook on all relevant CW layers.
-        """
-        for hook in self.hook_handles:
-            hook.remove()
-
-        self.hook_handles = []
-
-    def top_k_activated_concepts(self, images, k, all_layers=False) -> list[torch.Tensor]:
+    def top_k_activated_concepts(self, images, k) -> torch.Tensor:
         """
         Examine the top k activated concepts for each image in the batch.
 
@@ -188,26 +164,25 @@ class ResNet(nn.Module):
         -------
         - images (torch.Tensor): Image batch
         - k (int): Number of top activated concepts to consider
-        - all_layers (boolean): Whether to consider activations for all CW layers (True) or just the last layer (False)
 
         Returns:
         --------
-        - list[torch.Tensor - batch_size x k]: The top k activated concepts of each image, for each CW layer
+        - torch.Tensor - batch_size x k: The top k activated concepts of each image for the last CW layer
         """
-        relevant_cw_layers = self.cw_layers if all_layers else self.cw_layers[-1:]
-        top_k_activated_list = []
+        last_cw_layer = self.cw_layers[-1]
         
         self(images)
-        for cw_layer in relevant_cw_layers:
-            X_activated = cw_layer.current_batch_X_rot_activated
-            top_k_activated = torch.topk(X_activated, k, dim=1)
-            top_k_activated_list.append(top_k_activated)
+        X_activated = last_cw_layer.current_batch_X_rot_activated
 
-        return top_k_activated_list
+        # Only take the top k activated dimensions that correspond to some low level concepts
+        # The dimensions outside this range are meaningless
+        _, top_k_activated = torch.topk(X_activated[:, :self.num_low_level], k, dim=1)
+
+        return top_k_activated
         
     @staticmethod
-    def get_X_activated(module: CWLayer, _, _):
-        X_test: torch.Tensor = module.current_batch_X_test.cuda()
+    def get_X_activated(module: CWLayer, input, output):
+        X_test = torch.einsum('bchw,dc->bdhw', module.current_batch_X_hat, module.running_rot)
         activation_mode = module.activation_mode
 
         if activation_mode == 'mean':
@@ -291,6 +266,7 @@ class ResNet(nn.Module):
         return concept_matrix
     
     def _generate_latent_mappings(self, high_to_low: dict, latent_dim):
+        enough_dimensions = (latent_dim >= self.num_low_level)
         random.seed(42)
 
         indices = np.linspace(0, latent_dim, self.num_high_level + 1, dtype=int)
@@ -299,7 +275,7 @@ class ResNet(nn.Module):
 
         for i, high_concept in enumerate(high_to_low.keys()):
             for low_concept in high_to_low[high_concept]:
-                latent_mappings[low_concept] = random.choice(partitions[i])
+                latent_mappings[low_concept] = low_concept if enough_dimensions else random.choice(partitions[i])
 
         return latent_mappings
 

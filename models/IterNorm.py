@@ -126,7 +126,7 @@ class IterNormRotation(torch.nn.Module):
         self.maxunpool = torch.nn.MaxUnpool2d(kernel_size=3, stride=3)
 
         # intermediate values for hook extraction
-        self.current_batch_X_test = None
+        self.current_batch_X_hat = None
         self.current_batch_X_rot_activated = None
 
         # running mean
@@ -208,6 +208,10 @@ class IterNormRotation(torch.nn.Module):
         X_hat = IterNorm.apply(X, self.running_mean, self.running_wm, self.num_channels, self.T,
                                self.eps, self.momentum, self.training)
 
+        # Saving the intermediate value for hooks during evaluation
+        if not self.training:
+            self.current_batch_X_hat = X_hat
+
         # Updating the gradient matrix, using the concept dataset
         # The gradient is accumulated with momentum to stabilize the training
         with torch.no_grad():
@@ -216,7 +220,6 @@ class IterNormRotation(torch.nn.Module):
             if self.mode >= 0:
                 X_redacted = redact(X_hat, X_redact_coords, orig_x_dim)
                 X_test = torch.einsum('bchw,dc->bdhw', X_redacted, self.running_rot)
-                self.current_batch_X_test = X_test
 
                 # Applying the concept activation function
                 if self.activation_mode == 'mean':

@@ -203,13 +203,11 @@ def main():
     if CONFIG["verbose"]:
         print(f"Training completed. Final Accuracy: {val_acc:.4f}")
 
+    # Obtain the top k activated concepts for each image
     if CONFIG["eval"]["top_k_concepts"]:
         output_path = os.path.join(CONFIG["directories"]["eval"],
-                                   f"top_k_concepts_{CONFIG['train']['checkpoint_prefix']}")
-        top_k_activated_concepts(test_loader, model, output_path, low_level_names,
-                                 CONFIG["eval"]["k_concepts"], CONFIG["eval"]["all_layers"])
-    
-
+                                   f"top_k_concepts_{CONFIG['train']['checkpoint_prefix']}.json")
+        top_k_activated_concepts(test_loader, model, output_path, low_level_names, CONFIG["eval"]["k_concepts"])
 
 def train(
     train_loader: DataLoader,
@@ -341,11 +339,14 @@ def top_k_correct(output, target: torch.Tensor, k=1):
 
 
 def top_k_activated_concepts(data_loader: DataLoader[BackboneDataset], model: nn.DataParallel[ResNet],
-                             output_path: str, low_level_names: dict[int, str], k=50, all_layers=False):
-    model.module.register_hooks(ResNet.get_X_activated, all_layers)
-
-    num_relevant_cw_layers = len(model.module.cw_layers) if all_layers else 1
-    output = [{} for _ in range(num_relevant_cw_layers)]
+                             output_path: str, low_level_names: dict[int, str], k=50):
+    """
+    This should only be run at the end of the training cycle, as it sets the model to evaluation mode.
+    The activations in the last CW layers will be considered.
+    """
+    last_cw_layer = model.module.cw_layers[-1]
+    hook = last_cw_layer.register_forward_hook(ResNet.get_X_activated)
+    output = {}
 
     model.eval()
     with torch.no_grad():
@@ -357,24 +358,19 @@ def top_k_activated_concepts(data_loader: DataLoader[BackboneDataset], model: nn
             target = target.cuda()
 
             # List of torch.Tensors of size batch_size x k, each corresponding to a relevant CW layer
-            batch_top_k_concepts = model.module.top_k_activated_concepts(input, k, all_layers)
+            batch_top_k_concepts = model.module.top_k_activated_concepts(input, k).cpu()
 
-            # Loops through each relevant CW layer and gets its corresponding tensor
-            for layer_index, layer_top_k_concepts in enumerate(batch_top_k_concepts):
-                layer_output = output[layer_index]
-                layer_top_k_concepts = layer_top_k_concepts.cpu()
+            # Loops through each image in the batch
+            for image_index in range(input.shape[0]):
+                image_path = path[image_index]
+                top_k_concepts = batch_top_k_concepts[image_index].tolist()
 
-                # Loops through each image in the batch
-                for image_index in range(input.shape[0]):
-                    image_path = path[image_index]
-                    top_k_concepts = layer_top_k_concepts[image_index].tolist()
+                # Translates from concept index to concept name
+                top_k_names = tuple(low_level_names[concept] for concept in top_k_concepts)
 
-                    # Translates from concept index to concept name
-                    top_k_names = tuple(low_level_names[concept] for concept in top_k_concepts)
+                output[image_path] = top_k_names
 
-                    layer_output[image_path] = top_k_names
-
-    model.module.remove_hooks()
+    hook.remove()
 
     with open(output_path, 'w') as json_file:
         json.dump(output, json_file, indent=4)

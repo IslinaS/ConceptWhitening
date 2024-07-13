@@ -19,7 +19,7 @@ optim:
   lr_gamma: 0.2
 
 cw_layer:
-  whitened_layers: [[0], [0], [0], [0]]
+  whitened_layers: [[2], [3], [5], [2]]
   cw_lambda: 1
   activation_mode: "pool_max"
 
@@ -30,7 +30,7 @@ train:
   epochs: 50
   batch_size: 128
   workers: 2
-  checkpoint_prefix: "lambda_1_jul3"
+  checkpoint_prefix: "alex_jul12_afterblocks"
 
 eval:
   top_k_concepts: True

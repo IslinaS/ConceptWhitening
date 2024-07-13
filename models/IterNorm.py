@@ -125,6 +125,10 @@ class IterNormRotation(torch.nn.Module):
         self.maxpool = torch.nn.MaxPool2d(kernel_size=3, stride=3, return_indices=True)
         self.maxunpool = torch.nn.MaxUnpool2d(kernel_size=3, stride=3)
 
+        # intermediate values for hook extraction
+        self.current_batch_X_hat = None
+        self.current_batch_X_rot_activated = None
+
         # running mean
         self.register_buffer('running_mean', torch.zeros(1, num_channels, 1))
         # running whiten matrix
@@ -204,6 +208,10 @@ class IterNormRotation(torch.nn.Module):
         X_hat = IterNorm.apply(X, self.running_mean, self.running_wm, self.num_channels, self.T,
                                self.eps, self.momentum, self.training)
 
+        # Saving the intermediate value for hooks during evaluation
+        if not self.training:
+            self.current_batch_X_hat = X_hat
+
         # Updating the gradient matrix, using the concept dataset
         # The gradient is accumulated with momentum to stabilize the training
         with torch.no_grad():
@@ -211,6 +219,7 @@ class IterNormRotation(torch.nn.Module):
             # Throughout this code, d = dimensionality of latent space, self.mode = index of current concept
             if self.mode >= 0:
                 X_redacted = redact(X_hat, X_redact_coords, orig_x_dim)
+                X_test = torch.einsum('bchw,dc->bdhw', X_redacted, self.running_rot)
 
                 # Applying the concept activation function
                 if self.activation_mode == 'mean':
@@ -219,7 +228,6 @@ class IterNormRotation(torch.nn.Module):
                     X_activated = X_redacted.sum((2, 3)) / (redact_bool.sum((2, 3)) + 0.0001)
 
                 elif self.activation_mode == 'max':
-                    X_test = torch.einsum('bchw,dc->bdhw', X_redacted, self.running_rot)
                     # bdhw
                     max_values = torch.max(torch.max(X_test, 2, keepdim=True)[0], 3, keepdim=True)[0]
                     max_bool = (max_values == X_test).to(X_redacted)
@@ -227,14 +235,12 @@ class IterNormRotation(torch.nn.Module):
                     X_activated = (X_redacted * max_bool).sum((2, 3)) / max_bool.sum((2, 3))
 
                 elif self.activation_mode == 'pos_mean':
-                    X_test = torch.einsum('bchw,dc->bdhw', X_redacted, self.running_rot)
                     # bdhw
                     pos_bool = (X_test > 0).to(X_redacted)
                     # bd
                     X_activated = (X_redacted * pos_bool).sum((2, 3)) / (pos_bool.sum((2, 3)) + 0.0001)
 
                 elif self.activation_mode == 'pool_max':
-                    X_test = torch.einsum('bchw,dc->bdhw', X_redacted, self.running_rot)
                     # bdhw
                     maxpool_value, maxpool_indices = self.maxpool(X_test)
                     # bdhw

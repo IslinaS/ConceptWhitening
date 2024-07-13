@@ -9,6 +9,7 @@ models/checkpoints/
 
 # Testing Script and Slurm
 testing.py
+eval.ipynb
 
 # Data Exploration Related
 data/notes.md

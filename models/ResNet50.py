@@ -1,5 +1,7 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+import torch.utils.hooks as hooks
 import numpy as np
 import random
 
@@ -114,6 +116,8 @@ class ResNet(nn.Module):
         self.layers = [self.layer1, self.layer2, self.layer3, self.layer4]
         self.cw_layers: list[CWLayer] = []
         self.BN_DIM = [64, 128, 256, 512]  # This was what was given in the pretrained model
+   
+        self.hook_handles: list[hooks.RemovableHandle] = []
 
         self.num_low_level = sum([len(high_to_low[high_concept]) for high_concept in high_to_low])
         self.num_high_level = len(high_to_low)
@@ -121,8 +125,7 @@ class ResNet(nn.Module):
         self.concept_matrix = self._generate_concept_matrix(high_to_low)
 
         for i in range(4):
-            for whitened_layer in whitened_layers[i]:
-                # All params in train_params.yaml can be changed
+            for whitened_layer in sorted(whitened_layers[i]):
                 new_cw_layer = CWLayer(
                     num_features=self.BN_DIM[i],
                     activation_mode=activation_mode,
@@ -152,6 +155,48 @@ class ResNet(nn.Module):
         """
         for cw_layer in self.cw_layers:
             cw_layer.update_rotation_matrix()
+
+    def top_k_activated_concepts(self, images, k) -> torch.Tensor:
+        """
+        Examine the top k activated concepts for each image in the batch.
+
+        Params:
+        -------
+        - images (torch.Tensor): Image batch
+        - k (int): Number of top activated concepts to consider
+
+        Returns:
+        --------
+        - torch.Tensor - batch_size x k: The top k activated concepts of each image for the last CW layer
+        """
+        last_cw_layer = self.cw_layers[-1]
+        
+        self(images)
+        X_activated = last_cw_layer.current_batch_X_rot_activated
+
+        # Only take the top k activated dimensions that correspond to some low level concepts
+        # The dimensions outside this range are meaningless
+        _, top_k_activated = torch.topk(X_activated[:, :self.num_low_level], k, dim=1)
+
+        return top_k_activated
+        
+    @staticmethod
+    def get_X_activated(module: CWLayer, input, output):
+        X_test = torch.einsum('bchw,dc->bdhw', module.current_batch_X_hat, module.running_rot)
+        activation_mode = module.activation_mode
+
+        if activation_mode == 'mean':
+            X_activated = X_test.mean((2, 3))
+        elif activation_mode == 'max':
+            X_activated = X_test.max((2, 3))
+        elif activation_mode == 'pos_mean':
+            pos_bool = (X_test > 0).to(X_test)
+            X_activated = (X_test * pos_bool).sum((2, 3)) / (pos_bool.sum((2, 3)) + 0.0001)
+        elif activation_mode == 'pool_max':
+            X_pooled = F.max_pool2d(X_test, kernel_size=3, stride=3)
+            X_activated = X_pooled.mean((2, 3))
+
+        module.current_batch_X_rot_activated = X_activated
 
     def load_model(self, pretrain):
         print("Loading backbone pretrain model from {}......".format(pretrain))
@@ -221,6 +266,7 @@ class ResNet(nn.Module):
         return concept_matrix
     
     def _generate_latent_mappings(self, high_to_low: dict, latent_dim):
+        enough_dimensions = (latent_dim >= self.num_low_level)
         random.seed(42)
 
         indices = np.linspace(0, latent_dim, self.num_high_level + 1, dtype=int)
@@ -229,7 +275,7 @@ class ResNet(nn.Module):
 
         for i, high_concept in enumerate(high_to_low.keys()):
             for low_concept in high_to_low[high_concept]:
-                latent_mappings[low_concept] = random.choice(partitions[i])
+                latent_mappings[low_concept] = low_concept if enough_dimensions else random.choice(partitions[i])
 
         return latent_mappings
 

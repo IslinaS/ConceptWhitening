@@ -25,6 +25,13 @@ def main():
     with open("config.yaml", 'r') as file:
         CONFIG = yaml.safe_load(file)
 
+    # Set the random seeds for reproducibility
+    torch.manual_seed(CONFIG["seed"])
+    torch.cuda.manual_seed_all(CONFIG["seed"])
+
+    # https://stackoverflow.com/questions/58961768/set-torch-backends-cudnn-benchmark-true-or-not
+    cudnn.benchmark = True
+
     # ============
     # Data Loading
     # ============
@@ -87,7 +94,7 @@ def main():
     # First, we need to add the free concepts using CWDataset's static method
     train_df_free, free_low_level, free_mappings = CWDataset.make_free_concepts(train_df, 2, low_level,
                                                                                 high_level, mappings)
-    high_to_low = CWDataset.generate_high_to_low_mapping(free_low_level, free_mappings)
+    high_to_low, low_level_names = CWDataset.generate_low_level_cw_mappings(free_low_level, free_mappings)
     min_concept = min(free_low_level.values())
     max_concept = max(free_low_level.values())
 
@@ -115,13 +122,6 @@ def main():
     # ==============
     # Model Creation
     # ==============
-    # Set the random seeds for reproducibility
-    torch.manual_seed(CONFIG["seed"])
-    torch.cuda.manual_seed_all(CONFIG["seed"])
-
-    # https://stackoverflow.com/questions/58961768/set-torch-backends-cudnn-benchmark-true-or-not
-    cudnn.benchmark = True
-
     # Create the model. If you are using the default backbone, make sure to set vanilla pretrain to True.
     model = res50(
         whitened_layers=CONFIG["cw_layer"]["whitened_layers"],
@@ -196,11 +196,18 @@ def main():
             )
 
     # Load the best model before validating
-    model.module.load_model(best_path)
+    if best_path:
+        model.module.load_model(best_path)
+
     _, val_acc = validate(test_loader, model, criterion)
     if CONFIG["verbose"]:
         print(f"Training completed. Final Accuracy: {val_acc:.4f}")
 
+    # Obtain the top k activated concepts for each image
+    if CONFIG["eval"]["top_k_concepts"]:
+        output_path = os.path.join(CONFIG["directories"]["eval"],
+                                   f"top_k_concepts_{CONFIG['train']['checkpoint_prefix']}.json")
+        top_k_activated_concepts(test_loader, model, output_path, low_level_names, CONFIG["eval"]["k_concepts"])
 
 def train(
     train_loader: DataLoader,
@@ -217,7 +224,7 @@ def train(
     total_correct = 0
     model.train()
 
-    for i, (input, target) in enumerate(train_loader):
+    for i, (input, _, target) in enumerate(train_loader):
         input: torch.Tensor
         target: torch.Tensor
         # NOTE: CUB dataset labels start at 1, hence this line. If your target starts at zero, this needs to be removed!
@@ -269,7 +276,7 @@ def train(
 
 
 def validate(
-    data_loader: DataLoader,
+    data_loader: DataLoader[BackboneDataset],
     model: nn.DataParallel[ResNet],
     criterion: nn.modules.loss._Loss
 ):
@@ -281,10 +288,10 @@ def validate(
     model.eval()
 
     with torch.no_grad():
-        for input, target in data_loader:
+        for input, _, target in data_loader:
             input: torch.Tensor
             target: torch.Tensor
-            # NOTE: Cub datasets labels start at 1, hence this line. If your target starts at zero,
+            # NOTE: CUB datasets labels start at 1, hence this line. If your target starts at zero,
             # this needs to be removed!
             target = target - 1
 
@@ -324,12 +331,50 @@ def save_checkpoint(state):
 
 def top_k_correct(output, target: torch.Tensor, k=1):
     """
-    See how many predictions were in the top k predicted classes.
-    Assumes target is already adjusted to be -1 for CUB.
+    See how many predictions were in the top k predicted classes. Assumes target is already adjusted to be -1 for CUB.
     """
     _, predicted_topk = torch.topk(output, k, dim=1)
     correct_topk = (predicted_topk == target.unsqueeze(1)).sum().item()
     return correct_topk
+
+
+def top_k_activated_concepts(data_loader: DataLoader[BackboneDataset], model: nn.DataParallel[ResNet],
+                             output_path: str, low_level_names: dict[int, str], k=50):
+    """
+    This should only be run at the end of the training cycle, as it sets the model to evaluation mode.
+    The activations in the last CW layers will be considered.
+    """
+    last_cw_layer = model.module.cw_layers[-1]
+    hook = last_cw_layer.register_forward_hook(ResNet.get_X_activated)
+    output = {}
+
+    model.eval()
+    with torch.no_grad():
+        for input, path, target in data_loader:
+            input: torch.Tensor
+            target: torch.Tensor
+
+            input = input.cuda()
+            target = target.cuda()
+
+            # List of torch.Tensors of size batch_size x k, each corresponding to a relevant CW layer
+            batch_top_k_concepts = model.module.top_k_activated_concepts(input, k).cpu()
+
+            # Loops through each image in the batch
+            for image_index in range(input.shape[0]):
+                image_path = path[image_index]
+                top_k_concepts = batch_top_k_concepts[image_index].tolist()
+
+                # Translates from concept index to concept name
+                top_k_names = tuple(low_level_names[concept] for concept in top_k_concepts)
+
+                output[image_path] = top_k_names
+
+    hook.remove()
+
+    with open(output_path, 'w') as json_file:
+        json.dump(output, json_file, indent=4)
+    print(f"Top k activated concepts outputs have been saved to '{output_path}'")
 
 
 if __name__ == '__main__':

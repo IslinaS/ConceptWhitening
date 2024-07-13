@@ -30,7 +30,7 @@ train:
   epochs: 50
   batch_size: 128
   workers: 2
-  checkpoint_prefix: "alex_jul12_afterblocks"
+  checkpoint_prefix: "alex_jul12_removebreak_endofblock"
 
 eval:
   top_k_concepts: True

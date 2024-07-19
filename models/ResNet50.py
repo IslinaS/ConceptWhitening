@@ -42,9 +42,17 @@ class BottleNeck(nn.Module):
                 ),
                 nn.BatchNorm2d(self.expansion * planes),
             )
+            self.outdim = self.expansion * planes
         else:
             self.downsample = None
+            self.outdim = inplanes
         self.relu = nn.ReLU(True)
+
+        # Need this for forward
+        self.cw = None
+
+    def _make_cw_end(self, layer):
+        self.cw = layer
 
     def forward(self, x, region=None, orig_x_dim=None):
         # The isinstance see if we are passing to a CWLayer. If we are, send the region
@@ -68,6 +76,11 @@ class BottleNeck(nn.Module):
             residual = x
 
         out += residual
+
+        # Try running CW AFTER the block, not inside of it
+        if self.cw:
+            self.cw(out, X_redact_coords=region, orig_x_dim=orig_x_dim)
+
         out = self.relu(out)
 
         return out
@@ -116,7 +129,7 @@ class ResNet(nn.Module):
         self.layers = [self.layer1, self.layer2, self.layer3, self.layer4]
         self.cw_layers: list[CWLayer] = []
         self.BN_DIM = [64, 128, 256, 512]  # This was what was given in the pretrained model
-   
+
         self.hook_handles: list[hooks.RemovableHandle] = []
 
         self.num_low_level = sum([len(high_to_low[high_concept]) for high_concept in high_to_low])
@@ -124,17 +137,30 @@ class ResNet(nn.Module):
 
         self.concept_matrix = self._generate_concept_matrix(high_to_low)
 
-        for i in range(4):
-            for whitened_layer in sorted(whitened_layers[i]):
-                new_cw_layer = CWLayer(
-                    num_features=self.BN_DIM[i],
-                    activation_mode=activation_mode,
-                    concept_mat=self.concept_matrix,
-                    latent_mappings=self._generate_latent_mappings(high_to_low, latent_dim=self.BN_DIM[i]),
-                    cw_lambda=cw_lambda
-                )
-                self.layers[i][whitened_layer].bn1 = new_cw_layer
-                self.cw_layers.append(new_cw_layer)
+        if whitened_layers:
+            for i in range(4):
+                for whitened_layer in sorted(whitened_layers[i]):
+                    # Put the CW module OUTSIDE the block
+                    if whitened_layer == -1:
+                        block = self.layers[i][-1]
+                        dim = block.outdim
+                        layer = CWLayer(num_features=dim,
+                                        activation_mode=activation_mode,
+                                        concept_mat=self.concept_matrix,
+                                        latent_mappings=self._generate_latent_mappings(high_to_low, latent_dim=dim),
+                                        cw_lambda=cw_lambda)
+                        block._make_cw_end(layer)
+                        self.cw_layers.append(layer)
+                    else:
+                        new_cw_layer = CWLayer(
+                            num_features=self.BN_DIM[i],
+                            activation_mode=activation_mode,
+                            concept_mat=self.concept_matrix,
+                            latent_mappings=self._generate_latent_mappings(high_to_low, latent_dim=self.BN_DIM[i]),
+                            cw_lambda=cw_lambda
+                        )
+                        self.layers[i][whitened_layer].bn1 = new_cw_layer
+                        self.cw_layers.append(new_cw_layer)
 
         if pretrain_loc and not vanilla_pretrain:
             self.load_model(pretrain=pretrain_loc)
@@ -156,7 +182,7 @@ class ResNet(nn.Module):
         for cw_layer in self.cw_layers:
             cw_layer.update_rotation_matrix()
 
-    def top_k_activated_concepts(self, images, k) -> torch.Tensor:
+    def top_k_activated_concepts(self, images, k, idx) -> torch.Tensor:
         """
         Examine the top k activated concepts for each image in the batch.
 
@@ -164,22 +190,24 @@ class ResNet(nn.Module):
         -------
         - images (torch.Tensor): Image batch
         - k (int): Number of top activated concepts to consider
+        - idx (int): Which cw layer to consider
 
         Returns:
         --------
-        - torch.Tensor - batch_size x k: The top k activated concepts of each image for the last CW layer
+        - torch.tensor (batch_size x k): The values of the top k activated concepts
+        - torch.Tensor - batch_size x k: The indices of the top k activated concepts of each image
         """
-        last_cw_layer = self.cw_layers[-1]
-        
+        cw_layer = self.cw_layers[idx]
+
         self(images)
-        X_activated = last_cw_layer.current_batch_X_rot_activated
+        X_activated = cw_layer.current_batch_X_rot_activated
 
         # Only take the top k activated dimensions that correspond to some low level concepts
         # The dimensions outside this range are meaningless
-        _, top_k_activated = torch.topk(X_activated[:, :self.num_low_level], k, dim=1)
+        top_k_values, top_k_indices = torch.topk(X_activated[:, :self.num_low_level], k, dim=1)
 
-        return top_k_activated
-        
+        return top_k_values, top_k_indices
+
     @staticmethod
     def get_X_activated(module: CWLayer, input, output):
         X_test = torch.einsum('bchw,dc->bdhw', module.current_batch_X_hat, module.running_rot)
@@ -188,12 +216,13 @@ class ResNet(nn.Module):
         if activation_mode == 'mean':
             X_activated = X_test.mean((2, 3))
         elif activation_mode == 'max':
-            X_activated = X_test.max((2, 3))
+            X_max_dim2, _ = X_test.max(dim=2, keepdim=False)
+            X_activated, _ = X_max_dim2.max(dim=2, keepdim=False)
         elif activation_mode == 'pos_mean':
             pos_bool = (X_test > 0).to(X_test)
             X_activated = (X_test * pos_bool).sum((2, 3)) / (pos_bool.sum((2, 3)) + 0.0001)
         elif activation_mode == 'pool_max':
-            X_pooled = F.max_pool2d(X_test, kernel_size=3, stride=3)
+            X_pooled = F.max_pool2d(X_test, kernel_size=1, stride=1)
             X_activated = X_pooled.mean((2, 3))
 
         module.current_batch_X_rot_activated = X_activated
@@ -203,7 +232,6 @@ class ResNet(nn.Module):
         model_dict = self.state_dict()
         pretrain_dict: dict = torch.load(pretrain)
         pretrain_dict = pretrain_dict["state_dict"] if "state_dict" in pretrain_dict else pretrain_dict
-
         new_dict = OrderedDict()
 
         for key, value in pretrain_dict.items():
@@ -264,7 +292,7 @@ class ResNet(nn.Module):
                     concept_matrix[i, j] = 1
 
         return concept_matrix
-    
+
     def _generate_latent_mappings(self, high_to_low: dict, latent_dim):
         enough_dimensions = (latent_dim >= self.num_low_level)
         random.seed(42)

@@ -194,7 +194,7 @@ def main():
                 f"\tValidation Accuracy: {accs[-1]:.4f}, was best? {is_best}",
                 flush=True
             )
-
+    """
     # Load the best model before validating
     if best_path:
         model.module.load_model(best_path)
@@ -202,12 +202,14 @@ def main():
     _, val_acc = validate(test_loader, model, criterion)
     if CONFIG["verbose"]:
         print(f"Training completed. Final Accuracy: {val_acc:.4f}")
-
+    """
     # Obtain the top k activated concepts for each image
     if CONFIG["eval"]["top_k_concepts"]:
         output_path = os.path.join(CONFIG["directories"]["eval"],
                                    f"top_k_concepts_{CONFIG['train']['checkpoint_prefix']}.json")
-        top_k_activated_concepts(test_loader, model, output_path, low_level_names, CONFIG["eval"]["k_concepts"])
+        top_k_activated_concepts(concept_loaders, test_loader, model, output_path, low_level_names,
+                                 CONFIG["eval"]["k_concepts"])
+
 
 def train(
     train_loader: DataLoader,
@@ -237,6 +239,8 @@ def train(
                 # Update the gradient matrix G for the concept whitening layers.
                 # Each concept in the CWLayer is indexed by its corresponding position in concept_loaders.
                 for idx, concept_loader in enumerate(concept_loaders):
+                    if idx not in CONFIG['train']['allowed_concepts']:
+                        continue
                     model.module.change_mode(idx)
 
                     for batch, region in concept_loader:
@@ -338,13 +342,35 @@ def top_k_correct(output, target: torch.Tensor, k=1):
     return correct_topk
 
 
-def top_k_activated_concepts(data_loader: DataLoader[BackboneDataset], model: nn.DataParallel[ResNet],
+def top_k_activated_concepts(concept_loaders, data_loader: DataLoader[BackboneDataset], model: nn.DataParallel[ResNet],
                              output_path: str, low_level_names: dict[int, str], k=50):
     """
     This should only be run at the end of the training cycle, as it sets the model to evaluation mode.
     The activations in the last CW layers will be considered.
     """
-    last_cw_layer = model.module.cw_layers[-1]
+    model.eval()
+    with torch.no_grad():
+        # Update the gradient matrix G for the concept whitening layers.
+        # Each concept in the CWLayer is indexed by its corresponding position in concept_loaders.
+        for idx, concept_loader in enumerate(concept_loaders):
+            if idx not in CONFIG['train']['allowed_concepts']:
+                continue
+            model.module.change_mode(idx)
+
+            for batch, region in concept_loader:
+                batch: torch.Tensor
+                batch = batch.cuda()
+                model(batch, region, batch.shape[2])  # batch.shape[2] gives the original x dimension
+                break  # only sample one batch for each concept
+
+        model.module.update_rotation_matrix()
+        # Stop computing the gradient for concept whitening.
+        # mode=-1 is the default mode that skips gradient computation.
+        model.module.change_mode(-1)
+
+    idx = 3
+    last_cw_layer = model.module.cw_layers[idx]
+
     hook = last_cw_layer.register_forward_hook(ResNet.get_X_activated)
     output = {}
 
@@ -358,17 +384,20 @@ def top_k_activated_concepts(data_loader: DataLoader[BackboneDataset], model: nn
             target = target.cuda()
 
             # List of torch.Tensors of size batch_size x k, each corresponding to a relevant CW layer
-            batch_top_k_concepts = model.module.top_k_activated_concepts(input, k).cpu()
+            batch_top_k_vals, batch_top_k_concepts = model.module.top_k_activated_concepts(input, k, idx)
+            batch_top_k_vals = batch_top_k_vals.cpu()
+            batch_top_k_concepts = batch_top_k_concepts.cpu()
 
             # Loops through each image in the batch
             for image_index in range(input.shape[0]):
                 image_path = path[image_index]
                 top_k_concepts = batch_top_k_concepts[image_index].tolist()
+                top_k_vals = batch_top_k_vals[image_index].tolist()
 
                 # Translates from concept index to concept name
-                top_k_names = tuple(low_level_names[concept] for concept in top_k_concepts)
+                top_k_names = list(low_level_names[concept] for concept in top_k_concepts)
 
-                output[image_path] = top_k_names
+                output[image_path] = [top_k_vals, top_k_names]
 
     hook.remove()
 

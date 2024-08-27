@@ -11,10 +11,8 @@ models/checkpoints/
 testing.py
 eval.ipynb
 
-# Data Exploration Related
-data/notes.md
-data/eda.ipynb
-
+# Scratch Notebooks
+scratch_work/
 # Misc
 logs/
 secrets.txt

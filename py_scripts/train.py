@@ -232,7 +232,7 @@ def train(
         # NOTE: CUB dataset labels start at 1, hence this line. If your target starts at zero, this needs to be removed!
         target = target - 1
 
-        # Train for concept whitening loss once every 30 batches.
+        # Train for concept whitening loss once every train_cw_freq batches.
         if (i + 1) % CONFIG["train"]["train_cw_freq"] == 0:
             model.eval()
             with torch.no_grad():
@@ -251,7 +251,7 @@ def train(
 
                 model.module.update_rotation_matrix()
                 # Stop computing the gradient for concept whitening.
-                # mode=-1 is the default mode that skips gradient computation.
+                # A mode of -1 is the default mode that skips gradient computation.
                 model.module.change_mode(-1)
             model.train()
 

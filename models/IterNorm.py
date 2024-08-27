@@ -288,3 +288,27 @@ class IterNormRotation(torch.nn.Module):
     def extra_repr(self):
         return 'num_features={num_features}, num_channels={num_channels}, T={T}, eps={eps}, ' \
                'momentum={momentum}, affine={affine}'.format(**self.__dict__)
+
+    def CWLoss(output, target, weight):
+        """
+        This is the custom loss function to backprop to. Of the form Loss = CE + lambda * CWLoss
+
+        Params:
+        -------
+        - output (torch.Tensor): Outputs of your network
+        - target (torch.Tensor): The ground truth labels
+        - weight (float): Factor by which the CW loss is scaled
+
+        Returns:
+        --------
+        - torch.Tensor: The loss as a torch tensor
+        """
+        weight = torch.Tensor(weight)
+        ce = torch.nn.CrossEntropyLoss().cuda()
+        loss = ce(output, target).item()
+
+        # TODO: Compute the concept loss
+        concept_loss = 0
+
+        loss += weight * concept_loss
+        return loss

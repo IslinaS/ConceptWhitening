@@ -38,7 +38,7 @@ def main():
 
     # TODO: patch for weird dimension issue, to be removed
     for image_path in train['path']:
-    # Open the image file
+        # Open the image file
         with Image.open(image_path) as img:
             # Check if image dimensions are not 224x224
             if img.size != (224, 224):

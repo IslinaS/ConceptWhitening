@@ -19,19 +19,20 @@ optim:
   lr_gamma: 0.2
 
 cw_layer:
-  whitened_layers: [[2], [3], [5], [2]]
-  cw_lambda: 1
+  whitened_layers: [[-1], [-1], [-1], [-1]]
+  cw_lambda: 0.2
   activation_mode: "pool_max"
 
 train:
   vanilla: True
   print_freq: 1
   train_cw_freq: 20
-  epochs: 50
+  epochs: 5
   batch_size: 128
-  workers: 2
-  checkpoint_prefix: "lambda_1_all_last_CW_layer_jul12"
+  workers: 3
+  checkpoint_prefix: "alex_jul18_beak_only"
+  allowed_concepts: [1, 2, 3, 4, 5, 6, 7, 8, 9]
 
 eval:
   top_k_concepts: True
-  k_concepts: 10
+  k_concepts: 50

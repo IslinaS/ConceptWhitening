@@ -267,6 +267,29 @@ def train(
         total_loss += loss.item()
         total_correct += top_k_correct(output, target)
 
+        # Calculate CW loss
+        model.module.reset_counters()
+        model.eval()
+        with torch.no_grad():
+            # Each concept in the CWLayer is indexed by its corresponding position in concept_loaders.
+            for idx, concept_loader in enumerate(concept_loaders):
+                if idx not in CONFIG['train']['allowed_concepts']:
+                    continue
+                model.module.change_mode(idx)
+
+                for batch, region in concept_loader:
+                    batch: torch.Tensor
+                    batch = batch.cuda()
+                    model(batch, region, batch.shape[2])  # batch.shape[2] gives the original x dimension
+
+            # Stop computing the gradient for concept whitening.
+            # A mode of -1 is the default mode that skips gradient computation.
+            model.module.change_mode(-1)
+        model.train()
+
+        loss -= CONFIG["train"]["cw_loss_weight"] * model.module.cw_loss()
+        model.module.reset_counters()
+
         # Compute gradient and do SGD step
         optimizer.zero_grad()
         loss.backward()
@@ -363,7 +386,7 @@ def top_k_activated_concepts(concept_loaders, data_loader: DataLoader[BackboneDa
                 model(batch, region, batch.shape[2])  # batch.shape[2] gives the original x dimension
                 break  # only sample one batch for each concept
 
-        model.module.update_rotation_matrix()
+        model.module.reset_counter()
         # Stop computing the gradient for concept whitening.
         # mode=-1 is the default mode that skips gradient computation.
         model.module.change_mode(-1)

@@ -132,6 +132,9 @@ class ResNet(nn.Module):
 
         self.hook_handles: list[hooks.RemovableHandle] = []
 
+        self.high_to_low = high_to_low
+        self.cw_lambda = cw_lambda
+        
         self.num_low_level = sum([len(high_to_low[high_concept]) for high_concept in high_to_low])
         self.num_high_level = len(high_to_low)
 
@@ -142,7 +145,7 @@ class ResNet(nn.Module):
                 for whitened_layer in sorted(whitened_layers[i]):
                     # Put the CW module OUTSIDE the block
                     if whitened_layer == -1:
-                        block = self.layers[i][-1]
+                        block: BottleNeck = self.layers[i][-1]
                         dim = block.outdim
                         layer = CWLayer(num_features=dim,
                                         activation_mode=activation_mode,
@@ -182,6 +185,39 @@ class ResNet(nn.Module):
         for cw_layer in self.cw_layers:
             cw_layer.update_rotation_matrix()
 
+    def reset_counters(self):
+        """
+        Reset the counters for each whitened layer.
+        """
+        for cw_layer in self.cw_layers:
+            cw_layer.reset_counters()
+
+    def cw_loss(self):
+        cw_losses = []
+
+        for cw_layer in self.cw_layers:
+            concept_counter = cw_layer.concept_counter
+            low_concept_loss = cw_layer.low_concept_loss
+            high_concept_loss = cw_layer.high_concept_loss
+                
+            cw_loss = sum([low_concept_loss[mode] / concept_counter[mode] for mode in low_concept_loss])
+
+            for high_concept in self.high_to_low:
+                high_concept_count = 0
+                high_concept_loss = 0
+
+                for low_concept in self.high_to_low[high_concept]:
+                    if low_concept in high_concept_loss:
+                        high_concept_count += concept_counter[low_concept]
+                        high_concept_loss += high_concept_loss[low_concept]
+
+                if high_concept_count > 0:
+                    cw_loss += self.cw_lambda * high_concept_loss / high_concept_count
+
+            cw_losses.append(cw_loss)
+
+        return sum(cw_losses) / len(cw_losses) if len(cw_losses) > 0 else 0
+
     def top_k_activated_concepts(self, images, k, idx) -> torch.Tensor:
         """
         Examine the top k activated concepts for each image in the batch.
@@ -190,14 +226,14 @@ class ResNet(nn.Module):
         -------
         - images (torch.Tensor): Image batch
         - k (int): Number of top activated concepts to consider
-        - idx (int): Which cw layer to consider
+        - idx (int): Which CW layer to consider
 
         Returns:
         --------
-        - torch.tensor (batch_size x k): The values of the top k activated concepts
+        - torch.Tensor - batch_size x k: The values of the top k activated concepts
         - torch.Tensor - batch_size x k: The indices of the top k activated concepts of each image
         """
-        cw_layer = self.cw_layers[idx]
+        cw_layer: CWLayer = self.cw_layers[idx]
 
         self(images)
         X_activated = cw_layer.current_batch_X_rot_activated
@@ -216,8 +252,9 @@ class ResNet(nn.Module):
         if activation_mode == 'mean':
             X_activated = X_test.mean((2, 3))
         elif activation_mode == 'max':
-            X_max_dim2, _ = X_test.max(dim=2, keepdim=False)
-            X_activated, _ = X_max_dim2.max(dim=2, keepdim=False)
+            X_activated = torch.max(torch.max(X_test, dim=3), dim=2)
+            # X_max_dim2, _ = X_test.max(dim=2, keepdim=False)
+            # X_activated, _ = X_max_dim2.max(dim=2, keepdim=False)
         elif activation_mode == 'pos_mean':
             pos_bool = (X_test > 0).to(X_test)
             X_activated = (X_test * pos_bool).sum((2, 3)) / (pos_bool.sum((2, 3)) + 0.0001)

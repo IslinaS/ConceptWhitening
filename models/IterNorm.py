@@ -129,6 +129,11 @@ class IterNormRotation(torch.nn.Module):
         self.current_batch_X_hat = None
         self.current_batch_X_rot_activated = None
 
+        # loss counter, number of samples for each concept
+        self.concept_counter = {}
+        self.low_concept_loss = {}
+        self.high_concept_loss = {}
+
         # running mean
         self.register_buffer('running_mean', torch.zeros(1, num_channels, 1))
         # running whiten matrix
@@ -137,8 +142,8 @@ class IterNormRotation(torch.nn.Module):
         self.register_buffer('running_rot', torch.eye(num_channels))
         # sum Gradient, need to take average later
         self.register_buffer('sum_G', torch.zeros(num_channels, num_channels))
-        # counter, number of gradient for each concept
-        self.register_buffer("counter", torch.ones(num_channels) * 0.001)
+        # grad counter, number of gradient for each concept
+        self.register_buffer("grad_counter", torch.ones(num_channels) * 0.001)
 
         self.reset_parameters()
 
@@ -147,13 +152,19 @@ class IterNormRotation(torch.nn.Module):
             torch.nn.init.ones_(self.weight)
             torch.nn.init.zeros_(self.bias)
 
+    def reset_counters(self):
+        self.grad_counter = (torch.ones(self.num_channels) * 0.001).cuda()
+        self.concept_counter = {}
+        self.low_concept_loss = {}
+        self.high_concept_loss = {}
+
     def update_rotation_matrix(self):
         """
         Update the rotation matrix R using the accumulated gradient G.
         The update uses Cayley transform to make sure R is always orthonormal.
         """
         with torch.no_grad():
-            G: torch.Tensor = self.sum_G / self.counter.reshape(-1, 1)
+            G: torch.Tensor = self.sum_G / self.grad_counter.reshape(-1, 1)
             R: torch.Tensor = self.running_rot.clone()
 
             for _ in range(2):
@@ -201,7 +212,7 @@ class IterNormRotation(torch.nn.Module):
                 R = torch.mm(Q, R)
 
             self.running_rot = R
-            self.counter = (torch.ones(self.num_channels) * 0.001).cuda()
+            self.reset_counters()
 
     def forward(self, X, X_redact_coords=None, orig_x_dim=None):
         # Applying concept whitening
@@ -252,6 +263,7 @@ class IterNormRotation(torch.nn.Module):
 
                 # Calculating the projections onto higher level concept subspaces
                 num_concepts = self.concept_mat.size()[0]
+                # TODO: integrate latent concept mappings into this
                 concept_mask = (
                     F.pad(self.concept_mat[self.mode], (0, self.num_channels - num_concepts), mode='constant', value=0)
                 ).unsqueeze(0)
@@ -268,15 +280,25 @@ class IterNormRotation(torch.nn.Module):
                 # Calculating the gradient matrix of the concept activation loss
                 # For grad and self.sum_G, each ROW corresponds to a concept
                 low_grad = -X_activated.mean((0,))
-                grad_mode = self.latent_mappings[self.mode]
                 # dc, high_grad
+                grad_mode = self.latent_mappings[self.mode]
                 grad = -(torch.einsum('bd,bm->bmd', X_activated, max_bool)).mean((0,)) * self.cw_lambda / \
                     self.concept_mat[self.mode].sum()
                 grad[grad_mode, :] += low_grad + grad[grad_mode, :]
 
                 # Updating the gradient matrix G
                 self.sum_G = self.momentum * grad + (1. - self.momentum) * self.sum_G
-                self.counter[grad_mode] += 1
+                self.grad_counter[grad_mode] += 1
+
+                # Updating the CW loss
+                if self.mode not in self.concept_counter:
+                    self.concept_counter[self.mode] = 0
+                    self.low_concept_loss[self.mode] = 0
+                    self.high_concept_loss[self.mode] = 0
+
+                self.concept_counter[self.mode] += X_test.size(0)
+                self.low_concept_loss[self.mode] += X_activated[:, grad_mode].sum().item()
+                self.high_concept_loss[self.mode] += max_values.sum().item()
 
         # We set mode = -1 when we don't need to update G. For example, when we train for main objective
         X_hat = torch.einsum('bchw,dc->bdhw', X_hat, self.running_rot)
@@ -288,27 +310,3 @@ class IterNormRotation(torch.nn.Module):
     def extra_repr(self):
         return 'num_features={num_features}, num_channels={num_channels}, T={T}, eps={eps}, ' \
                'momentum={momentum}, affine={affine}'.format(**self.__dict__)
-
-    def CWLoss(output, target, weight):
-        """
-        This is the custom loss function to backprop to. Of the form Loss = CE + lambda * CWLoss
-
-        Params:
-        -------
-        - output (torch.Tensor): Outputs of your network
-        - target (torch.Tensor): The ground truth labels
-        - weight (float): Factor by which the CW loss is scaled
-
-        Returns:
-        --------
-        - torch.Tensor: The loss as a torch tensor
-        """
-        weight = torch.Tensor(weight)
-        ce = torch.nn.CrossEntropyLoss().cuda()
-        loss = ce(output, target).item()
-
-        # TODO: Compute the concept loss
-        concept_loss = 0
-
-        loss += weight * concept_loss
-        return loss

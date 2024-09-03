@@ -27,6 +27,7 @@ train:
   vanilla: True
   print_freq: 1
   train_cw_freq: 20
+  cw_loss_weight: 5
   epochs: 5
   batch_size: 128
   workers: 3

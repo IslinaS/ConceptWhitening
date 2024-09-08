@@ -94,7 +94,7 @@ class IterNormRotation(torch.nn.Module):
     Because the concept activation is calculated based on a feature map, which is a matrix,
     there are multiple ways to calculate the activation, denoted by activation_mode.
     """
-    def __init__(self, num_features, concept_mat: torch.Tensor, latent_mappings, num_channels=None, T=10, dim=4, 
+    def __init__(self, num_features, concept_mat: torch.Tensor, latent_mappings, num_channels=None, T=10, dim=4,
                  eps=1e-5, momentum=0.05, cw_lambda=0.1, affine=False, mode=-1, activation_mode='pool_max'):
         super(IterNormRotation, self).__init__()
         assert dim == 4, 'IterNormRotation does not support 2D'

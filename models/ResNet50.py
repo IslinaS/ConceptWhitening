@@ -134,7 +134,7 @@ class ResNet(nn.Module):
 
         self.high_to_low = high_to_low
         self.cw_lambda = cw_lambda
-        
+
         self.num_low_level = sum([len(high_to_low[high_concept]) for high_concept in high_to_low])
         self.num_high_level = len(high_to_low)
 
@@ -194,28 +194,39 @@ class ResNet(nn.Module):
 
     def cw_loss(self):
         cw_losses = []
+        print(self.high_to_low, flush=True)
 
         for cw_layer in self.cw_layers:
             concept_counter = cw_layer.concept_counter
             low_concept_loss = cw_layer.low_concept_loss
             high_concept_loss = cw_layer.high_concept_loss
-                
+
+            print("Outer Loop", flush=True)
+            print(concept_counter, flush=True)
+            print(low_concept_loss, flush=True)
+            print(high_concept_loss, flush=True)
+
             cw_loss = sum([low_concept_loss[mode] / concept_counter[mode] for mode in low_concept_loss])
 
             for high_concept in self.high_to_low:
+                print("Inner Loop", flush=True)
+                print(cw_loss, flush=True)
                 high_concept_count = 0
-                high_concept_loss = 0
+                acc_high_concept_loss = 0
 
                 for low_concept in self.high_to_low[high_concept]:
                     if low_concept in high_concept_loss:
                         high_concept_count += concept_counter[low_concept]
-                        high_concept_loss += high_concept_loss[low_concept]
+                        print(high_concept_count, flush=True)
+                        acc_high_concept_loss += high_concept_loss[low_concept]
 
-                if high_concept_count > 0:
-                    cw_loss += self.cw_lambda * high_concept_loss / high_concept_count
-
+                if acc_high_concept_loss > 0:
+                    cw_loss += self.cw_lambda * acc_high_concept_loss / high_concept_count
+                print(high_concept, flush=True)
+                print(high_concept_count, flush=True)
+                print(cw_loss, flush=True)
             cw_losses.append(cw_loss)
-
+        print(cw_losses, flush=True)
         return sum(cw_losses) / len(cw_losses) if len(cw_losses) > 0 else 0
 
     def top_k_activated_concepts(self, images, k, idx) -> torch.Tensor:

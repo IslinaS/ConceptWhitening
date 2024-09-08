@@ -67,6 +67,7 @@ def main():
         shuffle=True,
         num_workers=CONFIG["train"]["workers"]
     )
+    print("Train Made", flush=True)
 
     # Validation
     val_loader = DataLoader(
@@ -78,6 +79,7 @@ def main():
         shuffle=False,
         num_workers=CONFIG["train"]["workers"]
     )
+    print("Val Made", flush=True)
 
     # Test
     test_loader = DataLoader(
@@ -89,6 +91,7 @@ def main():
         shuffle=False,
         num_workers=CONFIG["train"]["workers"]
     )
+    print("Test Made", flush=True)
 
     # Concept
     # First, we need to add the free concepts using CWDataset's static method
@@ -118,7 +121,7 @@ def main():
             shuffle=True
         )
         concept_loaders.append(concept_loader)
-
+    print("Concept Made", flush=True)
     # ==============
     # Model Creation
     # ==============
@@ -239,8 +242,8 @@ def train(
                 # Update the gradient matrix G for the concept whitening layers.
                 # Each concept in the CWLayer is indexed by its corresponding position in concept_loaders.
                 for idx, concept_loader in enumerate(concept_loaders):
-                    if idx not in CONFIG['train']['allowed_concepts']:
-                        continue
+                    #if idx not in CONFIG['train']['allowed_concepts']:
+                    #    continue
                     model.module.change_mode(idx)
 
                     for batch, region in concept_loader:
@@ -273,8 +276,8 @@ def train(
         with torch.no_grad():
             # Each concept in the CWLayer is indexed by its corresponding position in concept_loaders.
             for idx, concept_loader in enumerate(concept_loaders):
-                if idx not in CONFIG['train']['allowed_concepts']:
-                    continue
+                #if idx not in CONFIG['train']['allowed_concepts']:
+                #    continue
                 model.module.change_mode(idx)
 
                 for batch, region in concept_loader:
@@ -287,7 +290,12 @@ def train(
             model.module.change_mode(-1)
         model.train()
 
+        # This is really cw score not loss. We want to maximize axis alignment. Hence the minus
+        print(loss, flush=True)
+        print(model.module.cw_loss(), flush=True)
+        print(model.module.cw_loss() / (model.module.cw_loss() + loss), flush=True)
         loss -= CONFIG["train"]["cw_loss_weight"] * model.module.cw_loss()
+        print(model.module.cw_loss() / (model.module.cw_loss() + loss), flush=True)
         model.module.reset_counters()
 
         # Compute gradient and do SGD step
@@ -376,8 +384,8 @@ def top_k_activated_concepts(concept_loaders, data_loader: DataLoader[BackboneDa
         # Update the gradient matrix G for the concept whitening layers.
         # Each concept in the CWLayer is indexed by its corresponding position in concept_loaders.
         for idx, concept_loader in enumerate(concept_loaders):
-            if idx not in CONFIG['train']['allowed_concepts']:
-                continue
+            #if idx not in CONFIG['train']['allowed_concepts']:
+            #    continue
             model.module.change_mode(idx)
 
             for batch, region in concept_loader:

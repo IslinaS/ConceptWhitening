@@ -193,38 +193,38 @@ class ResNet(nn.Module):
             cw_layer.reset_counters()
 
     def cw_loss(self):
+        print("Starting CW loss calculation...")
         cw_losses = []
-        print(self.high_to_low, flush=True)
 
         for cw_layer in self.cw_layers:
             concept_counter = cw_layer.concept_counter
             low_concept_loss = cw_layer.low_concept_loss
             high_concept_loss = cw_layer.high_concept_loss
 
-            print("Outer Loop", flush=True)
-            print(concept_counter, flush=True)
-            print(low_concept_loss, flush=True)
-            print(high_concept_loss, flush=True)
+            print("Outer loop", flush=True)
+            print(f"Concept counter: {concept_counter}", flush=True)
+            print(f"Low concept loss: {low_concept_loss}", flush=True)
+            print(f"High concept loss: {high_concept_loss}", flush=True)
 
             cw_loss = sum([low_concept_loss[mode] / concept_counter[mode] for mode in low_concept_loss])
 
             for high_concept in self.high_to_low:
-                print("Inner Loop", flush=True)
-                print(cw_loss, flush=True)
+                print("Inner loop", flush=True)
+                print(f"Current high concept: {high_concept}", flush=True)
+                print(f"CW loss before concept loop: {cw_loss}", flush=True)
                 high_concept_count = 0
                 acc_high_concept_loss = 0
 
                 for low_concept in self.high_to_low[high_concept]:
                     if low_concept in high_concept_loss:
                         high_concept_count += concept_counter[low_concept]
-                        print(high_concept_count, flush=True)
+                        print(f"High concept count: {high_concept_count}", flush=True)
                         acc_high_concept_loss += high_concept_loss[low_concept]
 
                 if acc_high_concept_loss > 0:
                     cw_loss += self.cw_lambda * acc_high_concept_loss / high_concept_count
-                print(high_concept, flush=True)
-                print(high_concept_count, flush=True)
-                print(cw_loss, flush=True)
+                print(f"High concept count for {high_concept} : {high_concept_count}", flush=True)
+                print(f"CW loss after concept loop: {cw_loss}", flush=True)
             cw_losses.append(cw_loss)
         print(cw_losses, flush=True)
         return sum(cw_losses) / len(cw_losses) if len(cw_losses) > 0 else 0

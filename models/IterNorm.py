@@ -275,6 +275,7 @@ class IterNormRotation(torch.nn.Module):
                 X_rot_masked = X_rot * concept_mask
                 X_rot_masked[X_rot_masked == 0] = float('-inf')
                 max_values = torch.max(X_rot_masked, 1, keepdim=True)[0]
+                collapsed_max_values = torch.max(X_rot_masked, 1)[0]
                 max_bool = (max_values == X_rot_masked).to(X_activated)
 
                 # Calculating the gradient matrix of the concept activation loss
@@ -297,8 +298,14 @@ class IterNormRotation(torch.nn.Module):
                     self.high_concept_loss[self.mode] = 0
 
                 self.concept_counter[self.mode] += X_test.size(0)
-                self.low_concept_loss[self.mode] += X_activated[:, grad_mode].sum().item()
-                self.high_concept_loss[self.mode] += max_values.sum().item()
+
+                low_concept_loss = X_activated[:, grad_mode].sum()
+                print(f"low_concept_loss: {low_concept_loss}")
+                self.low_concept_loss[self.mode] += low_concept_loss
+
+                high_concept_loss = collapsed_max_values.sum()
+                print(f"high_concept_loss: {high_concept_loss}")
+                self.high_concept_loss[self.mode] += high_concept_loss
 
         # We set mode = -1 when we don't need to update G. For example, when we train for main objective
         X_hat = torch.einsum('bchw,dc->bdhw', X_hat, self.running_rot)

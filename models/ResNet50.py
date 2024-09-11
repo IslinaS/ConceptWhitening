@@ -215,7 +215,7 @@ class ResNet(nn.Module):
 
                 if acc_high_concept_loss > 0:
                     cw_loss += self.cw_lambda * acc_high_concept_loss / high_concept_count
-            
+
             print(f"Total concept loss: {cw_loss}", flush=True)
             cw_losses.append(cw_loss)
 

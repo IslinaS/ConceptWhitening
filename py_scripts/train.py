@@ -51,8 +51,8 @@ def main():
     mappings_path = os.path.abspath(CONFIG["directories"]["mappings"])
     with open(low_path, "r") as file:
         low_level = json.load(file)
-    with open(high_path, "r") as file:
-        high_level = json.load(file)
+    """with open(high_path, "r") as file:
+        high_level = json.load(file)"""
     with open(mappings_path, "r") as file:
         mappings = json.load(file)
 
@@ -92,16 +92,18 @@ def main():
 
     # Concept
     # First, we need to add the free concepts using CWDataset's static method
-    train_df_free, free_low_level, free_mappings = CWDataset.make_free_concepts(train_df, 2, low_level,
-                                                                                high_level, mappings)
-    high_to_low, low_level_names = CWDataset.generate_low_level_cw_mappings(free_low_level, free_mappings)
-    min_concept = min(free_low_level.values())
-    max_concept = max(free_low_level.values())
+    """train_df_free, free_low_level, free_mappings = CWDataset.make_free_concepts(train_df, 2, low_level,
+                                                                                high_level, mappings)"""
+    # TODO: Changed all free_low_level and free_mappings to the defaults
+    high_to_low, low_level_names = CWDataset.generate_low_level_cw_mappings(low_level, mappings)
+    min_concept = min(low_level.values())
+    max_concept = max(low_level.values())
 
     concept_loaders = []
     for i in range(min_concept, max_concept + 1):
         concepts = CWDataset(
-            train_df_free, low_level, mode=i,
+            # train_df_free, low_level, mode=i,
+            train_df, low_level, mode=i,
             transform=transforms.Compose([transforms.ToTensor()])
         )
 
@@ -194,7 +196,7 @@ def main():
                 f"\tValidation Accuracy: {accs[-1]:.4f}, was best? {is_best}",
                 flush=True
             )
-    """
+
     # Load the best model before validating
     if best_path:
         model.module.load_model(best_path)
@@ -202,7 +204,7 @@ def main():
     _, val_acc = validate(test_loader, model, criterion)
     if CONFIG["verbose"]:
         print(f"Training completed. Final Accuracy: {val_acc:.4f}")
-    """
+
     # Obtain the top k activated concepts for each image
     if CONFIG["eval"]["top_k_concepts"]:
         output_path = os.path.join(CONFIG["directories"]["eval"],
@@ -239,7 +241,7 @@ def train(
                 # Update the gradient matrix G for the concept whitening layers.
                 # Each concept in the CWLayer is indexed by its corresponding position in concept_loaders.
                 for idx, concept_loader in enumerate(concept_loaders):
-                    #if idx not in CONFIG['train']['allowed_concepts']:
+                    # if idx not in CONFIG['train']['allowed_concepts']:
                     #    continue
                     model.module.change_mode(idx)
 
@@ -293,7 +295,7 @@ def train(
 
             cw_loss = model.module.cw_loss()
             print(f"CW score: {cw_loss}", flush=True)
-            
+
             loss -= CONFIG["train"]["cw_loss_weight"] * cw_loss
             model.module.reset_counters()
 
@@ -383,7 +385,7 @@ def top_k_activated_concepts(concept_loaders, data_loader: DataLoader[BackboneDa
         # Update the gradient matrix G for the concept whitening layers.
         # Each concept in the CWLayer is indexed by its corresponding position in concept_loaders.
         for idx, concept_loader in enumerate(concept_loaders):
-            #if idx not in CONFIG['train']['allowed_concepts']:
+            # if idx not in CONFIG['train']['allowed_concepts']:
             #    continue
             model.module.change_mode(idx)
 
@@ -398,7 +400,7 @@ def top_k_activated_concepts(concept_loaders, data_loader: DataLoader[BackboneDa
         # mode=-1 is the default mode that skips gradient computation.
         model.module.change_mode(-1)
 
-    idx = 3
+    idx = -1
     last_cw_layer = model.module.cw_layers[idx]
 
     hook = last_cw_layer.register_forward_hook(ResNet.get_X_activated)

@@ -20,18 +20,18 @@ optim:
 
 cw_layer:
   whitened_layers: [[], [], [], [-1]]
-  cw_lambda: 0.2
+  cw_lambda: 0
   activation_mode: "pool_max"
 
 train:
   vanilla: True
   print_freq: 1
   train_cw_freq: 20
-  cw_loss_weight: 5
+  cw_loss_weight: 5.0
   epochs: 5
   batch_size: 128
   workers: 3
-  checkpoint_prefix: "alex_sep3"
+  checkpoint_prefix: "alex_sep11_5_nofree"
   allowed_concepts: []
 
 eval:

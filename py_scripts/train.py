@@ -294,7 +294,7 @@ def train(
             cw_loss = model.module.cw_loss()
             print(f"CW score: {cw_loss}", flush=True)
             
-            loss -= CONFIG["train"]["cw_loss_weight"] * model.module.cw_loss()
+            loss -= CONFIG["train"]["cw_loss_weight"] * cw_loss
             model.module.reset_counters()
 
         # Compute gradient and do SGD step

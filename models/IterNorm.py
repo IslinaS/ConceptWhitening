@@ -130,9 +130,9 @@ class IterNormRotation(torch.nn.Module):
         self.current_batch_X_rot_activated = None
 
         # loss counter, number of samples for each concept
-        self.concept_counter = {}
-        self.low_concept_loss = {}
-        self.high_concept_loss = {}
+        self.concept_counter: dict[int, int] = {}
+        self.low_concept_loss: dict[int, torch.Tensor] = {}
+        self.high_concept_loss: dict[int, torch.Tensor] = {}
 
         # running mean
         self.register_buffer('running_mean', torch.zeros(1, num_channels, 1))
@@ -292,17 +292,17 @@ class IterNormRotation(torch.nn.Module):
 
                 # Updating the CW loss
                 if self.mode not in self.concept_counter:
-                    self.concept_counter[self.mode] = 0
-                    self.low_concept_loss[self.mode] = 0
-                    self.high_concept_loss[self.mode] = 0
+                    self.concept_counter[self.mode] = torch.as_tensor(0.0001)
+                    self.low_concept_loss[self.mode] = torch.as_tensor(0.0)
+                    self.high_concept_loss[self.mode] = torch.as_tensor(0.0)
 
                 self.concept_counter[self.mode] += X_test.size(0)
 
-                low_concept_loss = X_activated[:, grad_mode].sum().item()
-                self.low_concept_loss[self.mode] += low_concept_loss
+                low_concept_loss = X_activated[:, grad_mode].sum()
+                self.low_concept_loss[self.mode] = (self.low_concept_loss[self.mode].cpu() + low_concept_loss.cpu()).cuda()
 
-                high_concept_loss = collapsed_max_values.sum().item()
-                self.high_concept_loss[self.mode] += high_concept_loss
+                high_concept_loss = collapsed_max_values.sum()
+                self.high_concept_loss[self.mode] = (self.high_concept_loss[self.mode].cpu() + high_concept_loss.cpu()).cuda()
 
         # We set mode = -1 when we don't need to update G. For example, when we train for main objective
         X_hat = torch.einsum('bchw,dc->bdhw', X_hat, self.running_rot)

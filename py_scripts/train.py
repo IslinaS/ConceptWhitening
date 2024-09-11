@@ -239,8 +239,8 @@ def train(
                 # Update the gradient matrix G for the concept whitening layers.
                 # Each concept in the CWLayer is indexed by its corresponding position in concept_loaders.
                 for idx, concept_loader in enumerate(concept_loaders):
-                    #if idx not in CONFIG['train']['allowed_concepts']:
-                    #    continue
+                    # if idx not in CONFIG['train']['allowed_concepts']:
+                    #     continue
                     model.module.change_mode(idx)
 
                     for batch, region in concept_loader:
@@ -398,7 +398,7 @@ def top_k_activated_concepts(concept_loaders, data_loader: DataLoader[BackboneDa
         # mode=-1 is the default mode that skips gradient computation.
         model.module.change_mode(-1)
 
-    idx = 3
+    idx = -1
     last_cw_layer = model.module.cw_layers[idx]
 
     hook = last_cw_layer.register_forward_hook(ResNet.get_X_activated)

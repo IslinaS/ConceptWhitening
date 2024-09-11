@@ -201,25 +201,25 @@ class ResNet(nn.Module):
             low_concept_loss = cw_layer.low_concept_loss
             high_concept_loss = cw_layer.high_concept_loss
 
-            cw_loss = sum([low_concept_loss[mode] / concept_counter[mode] for mode in low_concept_loss])
+            cw_loss = torch.stack([low_concept_loss[mode].cpu() / concept_counter[mode] for mode in low_concept_loss]).sum()
             print(f"Low concept loss: {cw_loss}", flush=True)
 
             for high_concept in self.high_to_low:
                 high_concept_count = 0
-                acc_high_concept_loss = 0
+                acc_high_concept_loss = torch.as_tensor(0.0).cpu()
 
                 for low_concept in self.high_to_low[high_concept]:
                     if low_concept in high_concept_loss:
                         high_concept_count += concept_counter[low_concept]
-                        acc_high_concept_loss += high_concept_loss[low_concept]
+                        acc_high_concept_loss += high_concept_loss[low_concept].cpu()
 
-                if acc_high_concept_loss > 0:
+                if acc_high_concept_loss.item() > 0:
                     cw_loss += self.cw_lambda * acc_high_concept_loss / high_concept_count
             
             print(f"Total concept loss: {cw_loss}", flush=True)
             cw_losses.append(cw_loss)
 
-        return sum(cw_losses) / len(cw_losses) if len(cw_losses) > 0 else 0
+        return torch.stack(cw_losses).mean(dim=0) if len(cw_losses) > 0 else torch.as_tensor(0.0)
 
     def top_k_activated_concepts(self, images, k, idx) -> torch.Tensor:
         """

@@ -259,24 +259,23 @@ class IterNormRotation(torch.nn.Module):
                                                                  output_size=X_test.size())
                     maxpool_bool = ((X_test == X_test_unpool) & (X_test != 0)).to(X_redacted)
                     # bd
-                    X_activated = (X_redacted * maxpool_bool).sum((2, 3)) / maxpool_bool.sum((2, 3))
+                    X_activated = (X_redacted * maxpool_bool).sum((2, 3)) / (maxpool_bool.sum((2, 3)) + 0.0001)
 
                 # Calculating the projections onto higher level concept subspaces
                 num_concepts = self.concept_mat.size()[0]
                 # TODO: integrate latent concept mappings into this
                 concept_mask = (
                     F.pad(self.concept_mat[self.mode], (0, self.num_channels - num_concepts), mode='constant', value=0)
-                ).unsqueeze(0)
-
-                concept_mask = concept_mask.cuda()
+                ).unsqueeze(0).cuda()
 
                 X_rot = torch.einsum('bc,dc->bd', X_activated, self.running_rot)
                 # bd
                 X_rot_masked = X_rot * concept_mask
-                X_rot_masked[X_rot_masked == 0] = float('-inf')
+                # NOTE: takes the max values, or 0 if all values are 0 or negative
+                # X_rot_masked[X_rot_masked == 0] = float('-inf')
                 max_values = torch.max(X_rot_masked, 1, keepdim=True)[0]
-                collapsed_max_values = torch.max(X_rot_masked, 1)[0]
                 max_bool = (max_values == X_rot_masked).to(X_activated)
+                collapsed_max_values = torch.max(X_rot_masked, 1)[0]
 
                 # Calculating the gradient matrix of the concept activation loss
                 # For grad and self.sum_G, each ROW corresponds to a concept
@@ -299,12 +298,10 @@ class IterNormRotation(torch.nn.Module):
 
                 self.concept_counter[self.mode] += X_test.size(0)
 
-                low_concept_loss = X_activated[:, grad_mode].sum()
-                print(f"low_concept_loss: {low_concept_loss}")
+                low_concept_loss = X_activated[:, grad_mode].sum().item()
                 self.low_concept_loss[self.mode] += low_concept_loss
 
-                high_concept_loss = collapsed_max_values.sum()
-                print(f"high_concept_loss: {high_concept_loss}")
+                high_concept_loss = collapsed_max_values.sum().item()
                 self.high_concept_loss[self.mode] += high_concept_loss
 
         # We set mode = -1 when we don't need to update G. For example, when we train for main objective

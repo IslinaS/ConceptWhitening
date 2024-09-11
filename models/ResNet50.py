@@ -193,7 +193,7 @@ class ResNet(nn.Module):
             cw_layer.reset_counters()
 
     def cw_loss(self):
-        print("Starting CW loss calculation...")
+        print("Calculating CW loss...", flush=True)
         cw_losses = []
 
         for cw_layer in self.cw_layers:
@@ -201,32 +201,24 @@ class ResNet(nn.Module):
             low_concept_loss = cw_layer.low_concept_loss
             high_concept_loss = cw_layer.high_concept_loss
 
-            print("Outer loop", flush=True)
-            print(f"Concept counter: {concept_counter}", flush=True)
-            print(f"Low concept loss: {low_concept_loss}", flush=True)
-            print(f"High concept loss: {high_concept_loss}", flush=True)
-
             cw_loss = sum([low_concept_loss[mode] / concept_counter[mode] for mode in low_concept_loss])
+            print(f"Low concept loss: {cw_loss}", flush=True)
 
             for high_concept in self.high_to_low:
-                print("Inner loop", flush=True)
-                print(f"Current high concept: {high_concept}", flush=True)
-                print(f"CW loss before concept loop: {cw_loss}", flush=True)
                 high_concept_count = 0
                 acc_high_concept_loss = 0
 
                 for low_concept in self.high_to_low[high_concept]:
                     if low_concept in high_concept_loss:
                         high_concept_count += concept_counter[low_concept]
-                        print(f"High concept count: {high_concept_count}", flush=True)
                         acc_high_concept_loss += high_concept_loss[low_concept]
 
                 if acc_high_concept_loss > 0:
                     cw_loss += self.cw_lambda * acc_high_concept_loss / high_concept_count
-                print(f"High concept count for {high_concept} : {high_concept_count}", flush=True)
-                print(f"CW loss after concept loop: {cw_loss}", flush=True)
+            
+            print(f"Total concept loss: {cw_loss}", flush=True)
             cw_losses.append(cw_loss)
-        print(cw_losses, flush=True)
+
         return sum(cw_losses) / len(cw_losses) if len(cw_losses) > 0 else 0
 
     def top_k_activated_concepts(self, images, k, idx) -> torch.Tensor:
@@ -264,8 +256,6 @@ class ResNet(nn.Module):
             X_activated = X_test.mean((2, 3))
         elif activation_mode == 'max':
             X_activated = torch.max(torch.max(X_test, dim=3), dim=2)
-            # X_max_dim2, _ = X_test.max(dim=2, keepdim=False)
-            # X_activated, _ = X_max_dim2.max(dim=2, keepdim=False)
         elif activation_mode == 'pos_mean':
             pos_bool = (X_test > 0).to(X_test)
             X_activated = (X_test * pos_bool).sum((2, 3)) / (pos_bool.sum((2, 3)) + 0.0001)

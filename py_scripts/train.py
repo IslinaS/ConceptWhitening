@@ -267,33 +267,35 @@ def train(
         total_loss += loss.item()
         total_correct += top_k_correct(output, target)
 
-        # Calculate CW loss
-        model.module.reset_counters()
-        model.eval()
-        with torch.no_grad():
-            # Each concept in the CWLayer is indexed by its corresponding position in concept_loaders.
-            for idx, concept_loader in enumerate(concept_loaders):
-                # if idx not in CONFIG['train']['allowed_concepts']:
-                #     continue
-                model.module.change_mode(idx)
+        # Calculate CW loss once every train_cw_freq batches
+        if (i + 1) % CONFIG["train"]["train_cw_freq"] == 0:
+            model.module.reset_counters()
+            model.eval()
+            with torch.no_grad():
+                # Each concept in the CWLayer is indexed by its corresponding position in concept_loaders.
+                for idx, concept_loader in enumerate(concept_loaders):
+                    # if idx not in CONFIG['train']['allowed_concepts']:
+                    #     continue
+                    model.module.change_mode(idx)
 
-                for batch, region in concept_loader:
-                    batch: torch.Tensor
-                    batch = batch.cuda()
-                    model(batch, region, batch.shape[2])  # batch.shape[2] gives the original x dimension
+                    for batch, region in concept_loader:
+                        batch: torch.Tensor
+                        batch = batch.cuda()
+                        model(batch, region, batch.shape[2])  # batch.shape[2] gives the original x dimension
 
-            # Stop computing the gradient for concept whitening.
-            # A mode of -1 is the default mode that skips gradient computation.
-            model.module.change_mode(-1)
-        model.train()
+                # Stop computing the gradient for concept whitening.
+                # A mode of -1 is the default mode that skips gradient computation.
+                model.module.change_mode(-1)
+            model.train()
 
-        # This is really CW score not loss. We want to maximize axis alignment. Hence the minus
-        print(loss, flush=True)
-        print(model.module.cw_loss(), flush=True)
-        print(model.module.cw_loss() / (model.module.cw_loss() + loss), flush=True)
-        loss -= CONFIG["train"]["cw_loss_weight"] * model.module.cw_loss()
-        print(model.module.cw_loss() / (model.module.cw_loss() + loss), flush=True)
-        model.module.reset_counters()
+            # This is really CW score not loss. We want to maximize axis alignment. Hence the minus
+            print(f"Main objective loss: {loss}", flush=True)
+
+            cw_loss = model.module.cw_loss()
+            print(f"CW score: {cw_loss}", flush=True)
+            
+            loss -= CONFIG["train"]["cw_loss_weight"] * model.module.cw_loss()
+            model.module.reset_counters()
 
         # Compute gradient and do SGD step
         optimizer.zero_grad()
@@ -391,7 +393,7 @@ def top_k_activated_concepts(concept_loaders, data_loader: DataLoader[BackboneDa
                 model(batch, region, batch.shape[2])  # batch.shape[2] gives the original x dimension
                 break  # only sample one batch for each concept
 
-        model.module.reset_counter()
+        model.module.reset_counters()
         # Stop computing the gradient for concept whitening.
         # mode=-1 is the default mode that skips gradient computation.
         model.module.change_mode(-1)

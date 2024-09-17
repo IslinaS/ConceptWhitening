@@ -215,6 +215,10 @@ class IterNormRotation(torch.nn.Module):
             self.reset_counters()
 
     def forward(self, X, X_redact_coords=None, orig_x_dim=None):
+        # Redact before applying concept whitening
+        if self.mode >= 0:
+            X = redact(X, X_redact_coords, orig_x_dim)
+
         # Applying concept whitening
         X_hat = IterNorm.apply(X, self.running_mean, self.running_wm, self.num_channels, self.T,
                                self.eps, self.momentum, self.training)
@@ -229,7 +233,7 @@ class IterNormRotation(torch.nn.Module):
             # When mode >= 0, the mode-th column of gradient matrix is accumulated
             # Throughout this code, d = dimensionality of latent space, self.mode = index of current concept
             if self.mode >= 0:
-                X_redacted = redact(X_hat, X_redact_coords, orig_x_dim)
+                X_redacted = X_hat
                 X_test = torch.einsum('bchw,dc->bdhw', X_redacted, self.running_rot)
 
                 # Applying the concept activation function

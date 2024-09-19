@@ -268,7 +268,7 @@ def train(
         total_correct += top_k_correct(output, target)
 
         # Calculate CW loss once every train_cw_freq batches
-        if (i + 1) % CONFIG["train"]["train_cw_freq"] == 0:
+        """if (i + 1) % CONFIG["train"]["train_cw_freq"] == 0:
             model.module.reset_counters()
             model.eval()
             with torch.no_grad():
@@ -293,9 +293,9 @@ def train(
 
             cw_loss = model.module.cw_loss()
             print(f"CW score: {cw_loss}", flush=True)
-            
+
             loss -= CONFIG["train"]["cw_loss_weight"] * cw_loss
-            model.module.reset_counters()
+            model.module.reset_counters()"""
 
         # Compute gradient and do SGD step
         optimizer.zero_grad()

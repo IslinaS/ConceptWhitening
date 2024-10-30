@@ -3,6 +3,9 @@ __pycache__/
 .venv
 .flake8
 
+# Data
+data/coco_dataset
+
 # Stored Models
 models/pretrained/
 models/checkpoints/

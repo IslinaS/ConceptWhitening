@@ -229,7 +229,9 @@ class IterNormRotation(torch.nn.Module):
             # When mode >= 0, the mode-th column of gradient matrix is accumulated
             # Throughout this code, d = dimensionality of latent space, self.mode = index of current concept
             if self.mode >= 0:
-                X_redacted = redact(X_hat, X_redact_coords, orig_x_dim)
+                """Redact is currently shut off"""
+                # X_redacted = redact(X_hat, X_redact_coords, orig_x_dim)
+                X_redacted = X
                 X_test = torch.einsum('bchw,dc->bdhw', X_redacted, self.running_rot)
 
                 # Applying the concept activation function

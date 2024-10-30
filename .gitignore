@@ -4,7 +4,8 @@ __pycache__/
 .flake8
 
 # Data
-data/coco_dataset
+data/coco_dataset/annotations
+data/coco_dataset/images
 
 # Stored Models
 models/pretrained/

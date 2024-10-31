@@ -16,6 +16,9 @@ def load_api(annotation_file):
 
 def make_CW_df(coco, img_dir, is_train):
     """creates a COCO DataFrame in the CW fromat for training and validation data."""
+    img_dir = os.path.abspath(img_dir)
+    print(f"Absolute path to image directory: {img_dir}")
+    
     categories = coco.loadCats(coco.getCatIds())
     cat_dict = {cat['id']: (cat['name'], cat['supercategory']) for cat in categories}
     cat_name_to_id = {name: idx for idx, (name, _) in enumerate(cat_dict.values())}
@@ -86,4 +89,4 @@ if __name__ == "__main__":
     full_df = pd.concat([train_df, val_df], ignore_index=True)
     print(full_df.head())
 
-    full_df.to_parquet(os.path.join(DATASET_DIR, "coco_CW.parquet"), index=False)
+    full_df.to_parquet(os.path.join(DATASET_DIR, "COCO_CW.parquet"), index=False)

@@ -6,10 +6,10 @@ directories:
   model: "/usr/project/xtmp/cs474_cv/ConceptWhitening/models/pretrained/iNaturalist2018_res50_180epoch.pth"
   checkpoint: "/usr/project/xtmp/cs474_cv/ConceptWhitening/models/checkpoints"
   eval: "/usr/project/xtmp/cs474_cv/ConceptWhitening/eval"
-  data: "datasets/cub200_cw"
-  high_concepts: "data/json/high_level.json"
-  low_concepts: "data/json/low_level.json"
-  mappings: "data/json/mappings.json"
+  data: "/usr/project/xtmp/cs474_cv/ConceptWhitening/coco_dataset/"
+  high_concepts: "/home/users/aak61/CS474/ConceptWhitening/data/json/json_coco/high_level.json"
+  low_concepts: "/home/users/aak61/CS474/ConceptWhitening/data/json/json_coco/low_level.json"
+  mappings: "/home/users/aak61/CS474/ConceptWhitening/data/json/json_coco/mappings.json"
 
 optim:
   lr: 1.0e-3
@@ -19,7 +19,7 @@ optim:
   lr_gamma: 0.2
 
 cw_layer:
-  whitened_layers: [[], [], [], [-1]]
+  whitened_layers: [[-1], [-1], [-1], [-1]]
   cw_lambda: 0
   activation_mode: "pool_max"
 
@@ -27,13 +27,13 @@ train:
   vanilla: True
   print_freq: 1
   train_cw_freq: 20
-  cw_loss_weight: 5.0
-  epochs: 5
+  cw_loss_weight: 0
+  epochs: 10
   batch_size: 128
   workers: 3
-  checkpoint_prefix: "alex_sep11_5_nofree"
+  checkpoint_prefix: "alex_nov11_default"
   allowed_concepts: []
 
 eval:
   top_k_concepts: True
-  k_concepts: 50
+  k_concepts: 5

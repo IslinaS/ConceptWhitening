@@ -11,3 +11,6 @@ pandas
 opencv-python
 pyarrow
 pyyaml
+pycocotools
+tqdm
+requests

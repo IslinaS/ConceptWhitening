@@ -1,0 +1,22 @@
+name: CW
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10.*
+  - pytorch
+  - torchvision
+  - numpy
+  - scikit-learn
+  - matplotlib
+  - pillow
+  - seaborn
+  - scikit-image
+  - scipy
+  - pandas
+  - opencv
+  - pyarrow
+  - pyyaml
+  - pycocotools
+  - tqdm
+  - requests

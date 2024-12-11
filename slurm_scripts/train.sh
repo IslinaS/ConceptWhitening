@@ -12,4 +12,4 @@
 
 source slurm_scripts/secrets.txt
 source $VENV_PATH/bin/activate
-python3 py_scripts/train.py
+python3 py_scripts/train-coco.py

@@ -41,6 +41,8 @@ class BackboneDataset(Dataset):
         if self.transform:
             image = self.transform(image)
 
+        print(f"Data shape: {image.shape}, Target shape: {label.shape}")
+
         return image, path, label
 
 

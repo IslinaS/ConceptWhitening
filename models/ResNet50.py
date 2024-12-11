@@ -215,7 +215,7 @@ class ResNet(nn.Module):
 
                 if acc_high_concept_loss > 0:
                     cw_loss += self.cw_lambda * acc_high_concept_loss / high_concept_count
-            
+
             print(f"Total concept loss: {cw_loss}", flush=True)
             cw_losses.append(cw_loss)
 
@@ -260,7 +260,7 @@ class ResNet(nn.Module):
             pos_bool = (X_test > 0).to(X_test)
             X_activated = (X_test * pos_bool).sum((2, 3)) / (pos_bool.sum((2, 3)) + 0.0001)
         elif activation_mode == 'pool_max':
-            X_pooled = F.max_pool2d(X_test, kernel_size=1, stride=1)
+            X_pooled = F.max_pool2d(X_test, kernel_size=3, stride=3)
             X_activated = X_pooled.mean((2, 3))
 
         module.current_batch_X_rot_activated = X_activated
@@ -364,7 +364,7 @@ class ResNet(nn.Module):
         return out
 
 
-def res50(whitened_layers, high_to_low, cw_lambda, activation_mode="pool_max",
+def res50(whitened_layers, high_to_low, cw_lambda, num_classes=200, activation_mode="pool_max",
           pretrained_model=None, vanilla_pretrain=True):
     return ResNet(
         BottleNeck,
@@ -373,6 +373,7 @@ def res50(whitened_layers, high_to_low, cw_lambda, activation_mode="pool_max",
         whitened_layers=whitened_layers,
         high_to_low=high_to_low,
         cw_lambda=cw_lambda,
+        num_classes=num_classes,
         activation_mode=activation_mode,
         pretrain_loc=pretrained_model,
         vanilla_pretrain=vanilla_pretrain

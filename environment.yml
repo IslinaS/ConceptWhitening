@@ -1,11 +1,15 @@
 name: CW
 channels:
+  - pytorch
+  - nvidia
   - conda-forge
   - defaults
 dependencies:
+  - pip
   - python=3.10.*
   - pytorch
   - torchvision
+  - pytorch-cuda=12.4
   - numpy
   - scikit-learn
   - matplotlib
@@ -20,3 +24,5 @@ dependencies:
   - pycocotools
   - tqdm
   - requests
+  - ipykernel
+  - jupyter

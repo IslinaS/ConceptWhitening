@@ -1,5 +1,6 @@
 from data.datasets import BackboneDataset, CWDataset
 from models.ResNet50 import ResNet, res50
+from torchvision.models import resnet50
 
 import os
 import json
@@ -36,9 +37,8 @@ def main():
     # Data Loading
     # ============
     # Get data directories
-    cub_path = os.getenv('CUB_PATH')
-    train_df = pd.read_parquet(os.path.join(cub_path, CONFIG["directories"]["data"], "train.parquet"))
-    test_df = pd.read_parquet(os.path.join(cub_path, CONFIG["directories"]["data"], "test.parquet"))
+    train_df = pd.read_parquet(os.path.join(CONFIG["directories"]["data"], "train.parquet"))
+    test_df = pd.read_parquet(os.path.join(CONFIG["directories"]["data"], "test.parquet"))
     # Ensure reproducibility
     train_df, val_df = train_test_split(train_df, test_size=len(test_df), random_state=CONFIG["seed"])
 
@@ -47,12 +47,9 @@ def main():
 
     # Load the low and high level concept dictionaries
     low_path = os.path.abspath(CONFIG["directories"]["low_concepts"])
-    # high_path = os.path.abspath(CONFIG["directories"]["high_concepts"])
     mappings_path = os.path.abspath(CONFIG["directories"]["mappings"])
     with open(low_path, "r") as file:
         low_level = json.load(file)
-    """with open(high_path, "r") as file:
-        high_level = json.load(file)"""
     with open(mappings_path, "r") as file:
         mappings = json.load(file)
 
@@ -91,9 +88,6 @@ def main():
     )
 
     # Concept
-    # First, we need to add the free concepts using CWDataset's static method
-    """train_df_free, free_low_level, free_mappings = CWDataset.make_free_concepts(train_df, 2, low_level,
-                                                                                high_level, mappings)"""
     # TODO: Changed all free_low_level and free_mappings to the defaults
     high_to_low, low_level_names = CWDataset.generate_low_level_cw_mappings(low_level, mappings)
     min_concept = min(low_level.values())
@@ -101,8 +95,11 @@ def main():
 
     concept_loaders = []
     for i in range(min_concept, max_concept + 1):
+        if i not in CONFIG['train']['allowed_concepts']:
+            concept_loaders.append(None)
+            continue
+
         concepts = CWDataset(
-            # train_df_free, low_level, mode=i,
             train_df, low_level, mode=i,
             transform=transforms.Compose([transforms.ToTensor()])
         )
@@ -124,15 +121,26 @@ def main():
     # ==============
     # Model Creation
     # ==============
+    # Getting the pretrained resnet
+    imagenet_resnet = resnet50(pretrained=True)
+    pretrained_dict = imagenet_resnet.state_dict()
+
     # Create the model. If you are using the default backbone, make sure to set vanilla pretrain to True.
     model = res50(
         whitened_layers=CONFIG["cw_layer"]["whitened_layers"],
         high_to_low=high_to_low,
         cw_lambda=CONFIG["cw_layer"]["cw_lambda"],
         activation_mode=CONFIG["cw_layer"]["activation_mode"],
-        pretrained_model=CONFIG["directories"]["model"],
-        vanilla_pretrain=CONFIG['train']['vanilla']
+        num_classes=80,
+        pretrained_model=None,
+        vanilla_pretrain=True
     )
+
+    # Using the ImageNet1k ResNet50
+    model_dict = model.state_dict()
+    filtered_dict = {k: v for k, v in pretrained_dict.items() if (k in model_dict) and ('cw' not in k) and (k[0:2] != 'fc')}
+    model_dict.update(filtered_dict)
+    model.load_state_dict(model_dict)
 
     # Define loss, optimizer, and scheduler
     criterion = nn.CrossEntropyLoss().cuda()
@@ -228,11 +236,12 @@ def train(
     total_correct = 0
     model.train()
 
-    for i, (input, _, target) in enumerate(train_loader):
-        input: torch.Tensor
+    for i, (inp, _, target) in enumerate(train_loader):
+        inp: torch.Tensor
         target: torch.Tensor
         # NOTE: CUB dataset labels start at 1, hence this line. If your target starts at zero, this needs to be removed!
-        target = target - 1
+        # target = target - 1
+        print(f"TRAIN LOOP: input size: {inp.shape}, target size: {target.shape}")
 
         # Train for concept whitening loss once every train_cw_freq batches.
         if (i + 1) % CONFIG["train"]["train_cw_freq"] == 0:
@@ -241,8 +250,9 @@ def train(
                 # Update the gradient matrix G for the concept whitening layers.
                 # Each concept in the CWLayer is indexed by its corresponding position in concept_loaders.
                 for idx, concept_loader in enumerate(concept_loaders):
-                    # if idx not in CONFIG['train']['allowed_concepts']:
-                    #     continue
+                    if i not in CONFIG['train']['allowed_concepts']:
+                        continue
+
                     model.module.change_mode(idx)
 
                     for batch, region in concept_loader:
@@ -252,32 +262,36 @@ def train(
                         break  # only sample one batch for each concept
 
                 model.module.update_rotation_matrix()
+                print("Rotation matrix updated")
                 # Stop computing the gradient for concept whitening.
                 # A mode of -1 is the default mode that skips gradient computation.
                 model.module.change_mode(-1)
             model.train()
 
         # Move them to CUDA, assumes CUDA access
-        input = input.cuda()
+        inp = inp.cuda()
         target = target.cuda()
+        print(f"TRAIN LOOP post cuda: input size: {inp.shape}, target size: {target.shape}")
 
         # Forward pass + loss computation
-        output = model(input)
+        output = model(inp)
         loss: torch.Tensor = criterion(output, target)
 
         # Performance metrics
         total_loss += loss.item()
         total_correct += top_k_correct(output, target)
+        print("Loss computed")
 
         # Calculate CW loss once every train_cw_freq batches
-        """if (i + 1) % CONFIG["train"]["train_cw_freq"] == 0:
+        if (i + 1) % CONFIG["train"]["train_cw_freq"] == 0:
             model.module.reset_counters()
             model.eval()
             with torch.no_grad():
                 # Each concept in the CWLayer is indexed by its corresponding position in concept_loaders.
                 for idx, concept_loader in enumerate(concept_loaders):
-                    # if idx not in CONFIG['train']['allowed_concepts']:
-                    #     continue
+                    if idx not in CONFIG['train']['allowed_concepts']:
+                        continue
+
                     model.module.change_mode(idx)
 
                     for batch, region in concept_loader:
@@ -297,12 +311,13 @@ def train(
             print(f"CW score: {cw_loss}", flush=True)
 
             loss -= CONFIG["train"]["cw_loss_weight"] * cw_loss
-            model.module.reset_counters()"""
+            model.module.reset_counters()
 
         # Compute gradient and do SGD step
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        print("Weights updated")
 
     end = time.time()
     avg_loss = total_loss / len(train_loader)
@@ -324,24 +339,26 @@ def validate(
     model.eval()
 
     with torch.no_grad():
-        for input, _, target in data_loader:
-            input: torch.Tensor
+        for inp, _, target in data_loader:
+            inp: torch.Tensor
             target: torch.Tensor
-            # NOTE: CUB datasets labels start at 1, hence this line. If your target starts at zero,
-            # this needs to be removed!
-            target = target - 1
+            # NOTE: CUB datasets labels start at 1, hence this line.
+            # If your target starts at zero, this needs to be removed!
+            # target = target - 1
 
             # Moves them to CUDA, assumes CUDA access
             target = target.cuda()
-            input = input.cuda()
+            inp = inp.cuda()
+            print(f"Validation Loop: inp size: {inp.shape}, target size: {target.shape}")
 
             # Forward pass
-            output = model(input)
+            output = model(inp)
             loss: torch.Tensor = criterion(output, target)
 
             # Performance metrics
             total_loss += loss.item()
             total_correct += top_k_correct(output, target)
+            print("Computed Val loss")
 
     avg_loss = total_loss / len(data_loader)
     acc = total_correct / len(data_loader.dataset)
@@ -380,26 +397,6 @@ def top_k_activated_concepts(concept_loaders, data_loader: DataLoader[BackboneDa
     This should only be run at the end of the training cycle, as it sets the model to evaluation mode.
     The activations in the last CW layers will be considered.
     """
-    model.eval()
-    with torch.no_grad():
-        # Update the gradient matrix G for the concept whitening layers.
-        # Each concept in the CWLayer is indexed by its corresponding position in concept_loaders.
-        for idx, concept_loader in enumerate(concept_loaders):
-            # if idx not in CONFIG['train']['allowed_concepts']:
-            #    continue
-            model.module.change_mode(idx)
-
-            for batch, region in concept_loader:
-                batch: torch.Tensor
-                batch = batch.cuda()
-                model(batch, region, batch.shape[2])  # batch.shape[2] gives the original x dimension
-                break  # only sample one batch for each concept
-
-        model.module.reset_counters()
-        # Stop computing the gradient for concept whitening.
-        # mode=-1 is the default mode that skips gradient computation.
-        model.module.change_mode(-1)
-
     idx = -1
     last_cw_layer = model.module.cw_layers[idx]
 
@@ -408,20 +405,20 @@ def top_k_activated_concepts(concept_loaders, data_loader: DataLoader[BackboneDa
 
     model.eval()
     with torch.no_grad():
-        for input, path, target in data_loader:
-            input: torch.Tensor
+        for inp, path, target in data_loader:
+            inp: torch.Tensor
             target: torch.Tensor
 
-            input = input.cuda()
+            inp = inp.cuda()
             target = target.cuda()
 
             # List of torch.Tensors of size batch_size x k, each corresponding to a relevant CW layer
-            batch_top_k_vals, batch_top_k_concepts = model.module.top_k_activated_concepts(input, k, idx)
+            batch_top_k_vals, batch_top_k_concepts = model.module.top_k_activated_concepts(inp, k, idx)
             batch_top_k_vals = batch_top_k_vals.cpu()
             batch_top_k_concepts = batch_top_k_concepts.cpu()
 
             # Loops through each image in the batch
-            for image_index in range(input.shape[0]):
+            for image_index in range(inp.shape[0]):
                 image_path = path[image_index]
                 top_k_concepts = batch_top_k_concepts[image_index].tolist()
                 top_k_vals = batch_top_k_vals[image_index].tolist()

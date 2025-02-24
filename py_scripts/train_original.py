@@ -1,5 +1,5 @@
 from data.datasets import BackboneDataset, CWDataset
-from models.ResNet50 import ResNet, res50
+from models.ResNet50_original import res50
 
 import os
 import json
@@ -47,12 +47,13 @@ def main():
 
     # Load the low and high level concept dictionaries
     low_path = os.path.abspath(CONFIG["directories"]["low_concepts"])
+    # ignore high level concepts for training the original cw model
     # high_path = os.path.abspath(CONFIG["directories"]["high_concepts"])
     mappings_path = os.path.abspath(CONFIG["directories"]["mappings"])
     with open(low_path, "r") as file:
         low_level = json.load(file)
-    """with open(high_path, "r") as file:
-        high_level = json.load(file)"""
+    # with open(high_path, "r") as file:
+    #     high_level = json.load(file)
     with open(mappings_path, "r") as file:
         mappings = json.load(file)
 
@@ -90,19 +91,20 @@ def main():
         num_workers=CONFIG["train"]["workers"]
     )
 
-    # Concept
+    # Concept: ignoring addition of free concepts for original cw model
     # First, we need to add the free concepts using CWDataset's static method
-    """train_df_free, free_low_level, free_mappings = CWDataset.make_free_concepts(train_df, 2, low_level,
-                                                                                high_level, mappings)"""
-    # TODO: Changed all free_low_level and free_mappings to the defaults
-    high_to_low, low_level_names = CWDataset.generate_low_level_cw_mappings(low_level, mappings)
+    # train_df_free, free_low_level, free_mappings = CWDataset.make_free_concepts(train_df, 2, low_level,
+    #                                                                             high_level, mappings)
+    # high_to_low, low_level_names = CWDataset.generate_low_level_cw_mappings(free_low_level, free_mappings)
+    # min_concept = min(free_low_level.values())
+    # max_concept = max(free_low_level.values())
+
     min_concept = min(low_level.values())
     max_concept = max(low_level.values())
 
     concept_loaders = []
     for i in range(min_concept, max_concept + 1):
         concepts = CWDataset(
-            # train_df_free, low_level, mode=i,
             train_df, low_level, mode=i,
             transform=transforms.Compose([transforms.ToTensor()])
         )
@@ -124,15 +126,16 @@ def main():
     # ==============
     # Model Creation
     # ==============
-    # Create the model. If you are using the default backbone, make sure to set vanilla pretrain to True.
+    # Create the original cw model using ResidualNetTransfer
     model = res50(
         whitened_layers=CONFIG["cw_layer"]["whitened_layers"],
-        high_to_low=high_to_low,
+        high_to_low=None,
         cw_lambda=CONFIG["cw_layer"]["cw_lambda"],
         activation_mode=CONFIG["cw_layer"]["activation_mode"],
         pretrained_model=CONFIG["directories"]["model"],
         vanilla_pretrain=CONFIG['train']['vanilla']
     )
+
 
     # Define loss, optimizer, and scheduler
     criterion = nn.CrossEntropyLoss().cuda()
@@ -196,7 +199,7 @@ def main():
                 f"\tValidation Accuracy: {accs[-1]:.4f}, was best? {is_best}",
                 flush=True
             )
-
+    """
     # Load the best model before validating
     if best_path:
         model.module.load_model(best_path)
@@ -204,7 +207,7 @@ def main():
     _, val_acc = validate(test_loader, model, criterion)
     if CONFIG["verbose"]:
         print(f"Training completed. Final Accuracy: {val_acc:.4f}")
-
+    """
     # Obtain the top k activated concepts for each image
     if CONFIG["eval"]["top_k_concepts"]:
         output_path = os.path.join(CONFIG["directories"]["eval"],
@@ -241,8 +244,8 @@ def train(
                 # Update the gradient matrix G for the concept whitening layers.
                 # Each concept in the CWLayer is indexed by its corresponding position in concept_loaders.
                 for idx, concept_loader in enumerate(concept_loaders):
-                    # if idx not in CONFIG['train']['allowed_concepts']:
-                    #     continue
+                    #if idx not in CONFIG['train']['allowed_concepts']:
+                    #    continue
                     model.module.change_mode(idx)
 
                     for batch, region in concept_loader:
@@ -270,7 +273,7 @@ def train(
         total_correct += top_k_correct(output, target)
 
         # Calculate CW loss once every train_cw_freq batches
-        """if (i + 1) % CONFIG["train"]["train_cw_freq"] == 0:
+        if (i + 1) % CONFIG["train"]["train_cw_freq"] == 0:
             model.module.reset_counters()
             model.eval()
             with torch.no_grad():
@@ -295,9 +298,9 @@ def train(
 
             cw_loss = model.module.cw_loss()
             print(f"CW score: {cw_loss}", flush=True)
-
+            
             loss -= CONFIG["train"]["cw_loss_weight"] * cw_loss
-            model.module.reset_counters()"""
+            model.module.reset_counters()
 
         # Compute gradient and do SGD step
         optimizer.zero_grad()
@@ -385,7 +388,7 @@ def top_k_activated_concepts(concept_loaders, data_loader: DataLoader[BackboneDa
         # Update the gradient matrix G for the concept whitening layers.
         # Each concept in the CWLayer is indexed by its corresponding position in concept_loaders.
         for idx, concept_loader in enumerate(concept_loaders):
-            # if idx not in CONFIG['train']['allowed_concepts']:
+            #if idx not in CONFIG['train']['allowed_concepts']:
             #    continue
             model.module.change_mode(idx)
 
@@ -400,7 +403,7 @@ def top_k_activated_concepts(concept_loaders, data_loader: DataLoader[BackboneDa
         # mode=-1 is the default mode that skips gradient computation.
         model.module.change_mode(-1)
 
-    idx = -1
+    idx = 3
     last_cw_layer = model.module.cw_layers[idx]
 
     hook = last_cw_layer.register_forward_hook(ResNet.get_X_activated)

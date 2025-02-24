@@ -6,10 +6,10 @@ directories:
   model: "/usr/project/xtmp/cs474_cv/ConceptWhitening/models/pretrained/iNaturalist2018_res50_180epoch.pth"
   checkpoint: "/usr/project/xtmp/cs474_cv/ConceptWhitening/models/checkpoints"
   eval: "/usr/project/xtmp/cs474_cv/ConceptWhitening/eval"
-  data: "datasets/cub200_cw"
-  high_concepts: "data/json/high_level.json"
-  low_concepts: "data/json/low_level.json"
-  mappings: "data/json/mappings.json"
+  data: "/usr/project/xtmp/cs474_cv/ConceptWhitening/data/coco_mini/"
+  high_concepts: "/home/users/hvl5/work/ConceptWhitening/data/json/json_coco/high_level.json"
+  low_concepts: "/home/users/hvl5/work/ConceptWhitening/data/json/json_coco/low_level.json"
+  mappings: "/home/users/hvl5/work/ConceptWhitening/data/json/json_coco/mappings.json"
 
 optim:
   lr: 1.0e-3
@@ -31,9 +31,9 @@ train:
   epochs: 10
   batch_size: 128
   workers: 3
-  checkpoint_prefix: "alex_sep17_noredact"
+  checkpoint_prefix: "hung_feb24_coco"
   allowed_concepts: []
 
 eval:
   top_k_concepts: True
-  k_concepts: 50
+  k_concepts: 5

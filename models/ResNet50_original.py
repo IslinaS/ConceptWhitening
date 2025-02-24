@@ -7,7 +7,7 @@ import random
 
 from collections import OrderedDict
 from typing import Type
-from models.IterNorm import IterNormRotation as CWLayer
+from IterNorm_original import IterNormRotation as CWLayer
 
 """
 Code adapted from BBN.
@@ -88,18 +88,18 @@ class BottleNeck(nn.Module):
 
 class ResNet(nn.Module):
     def __init__(
-        self,
-        block_type: Type[BottleNeck],
-        num_blocks,
-        high_to_low,
-        num_classes=200,
-        last_layer_stride=2,
-        whitened_layers=[[0], [0], [0], [0]],
-        cw_lambda=0.1,
-        activation_mode="pool_max",
-        pretrain_loc=None,
-        vanilla_pretrain=True  # When true, expects no concept whitening modules
-    ):
+    self,
+    block_type: Type[BottleNeck],
+    num_blocks,
+    high_to_low=None,  # When None, expects only low level concepts
+    num_classes=200,
+    last_layer_stride=2,
+    whitened_layers=[[0], [0], [0], [0]],
+    cw_lambda=0.1,
+    activation_mode="pool_max",
+    pretrain_loc=None,
+    vanilla_pretrain=True  # When true, expects no concept whitening modules
+):
         super(ResNet, self).__init__()
         self.inplanes = 64
         self.block = block_type
@@ -132,13 +132,19 @@ class ResNet(nn.Module):
 
         self.hook_handles: list[hooks.RemovableHandle] = []
 
-        self.high_to_low = high_to_low
+        # Handle high_to_low being None
+        self.high_to_low = high_to_low or {}  # Set to an empty dict if None
         self.cw_lambda = cw_lambda
 
-        self.num_low_level = sum([len(high_to_low[high_concept]) for high_concept in high_to_low])
-        self.num_high_level = len(high_to_low)
-
-        self.concept_matrix = self._generate_concept_matrix(high_to_low)
+        if high_to_low:
+            self.num_low_level = sum([len(high_to_low[high_concept]) for high_concept in high_to_low])
+            self.num_high_level = len(high_to_low)
+            self.concept_matrix = self._generate_concept_matrix(high_to_low)
+        else:
+            # When no high-level concepts, set these to train on low-level concepts only
+            self.num_low_level = 0
+            self.num_high_level = 0
+            self.concept_matrix = None  # No concept matrix needed
 
         if whitened_layers:
             for i in range(4):
@@ -150,7 +156,7 @@ class ResNet(nn.Module):
                         layer = CWLayer(num_features=dim,
                                         activation_mode=activation_mode,
                                         concept_mat=self.concept_matrix,
-                                        latent_mappings=self._generate_latent_mappings(high_to_low, latent_dim=dim),
+                                        latent_mappings=self._generate_latent_mappings(high_to_low, latent_dim=dim) if high_to_low else None,
                                         cw_lambda=cw_lambda)
                         block._make_cw_end(layer)
                         self.cw_layers.append(layer)
@@ -159,7 +165,7 @@ class ResNet(nn.Module):
                             num_features=self.BN_DIM[i],
                             activation_mode=activation_mode,
                             concept_mat=self.concept_matrix,
-                            latent_mappings=self._generate_latent_mappings(high_to_low, latent_dim=self.BN_DIM[i]),
+                            latent_mappings=self._generate_latent_mappings(high_to_low, latent_dim=self.BN_DIM[i]) if high_to_low else None,
                             cw_lambda=cw_lambda
                         )
                         self.layers[i][whitened_layer].bn1 = new_cw_layer
@@ -201,25 +207,25 @@ class ResNet(nn.Module):
             low_concept_loss = cw_layer.low_concept_loss
             high_concept_loss = cw_layer.high_concept_loss
 
-            cw_loss = torch.stack([low_concept_loss[mode].cpu() / concept_counter[mode] for mode in low_concept_loss]).sum()
+            cw_loss = sum([low_concept_loss[mode] / concept_counter[mode] for mode in low_concept_loss])
             print(f"Low concept loss: {cw_loss}", flush=True)
 
             for high_concept in self.high_to_low:
                 high_concept_count = 0
-                acc_high_concept_loss = torch.as_tensor(0.0).cpu()
+                acc_high_concept_loss = 0
 
                 for low_concept in self.high_to_low[high_concept]:
                     if low_concept in high_concept_loss:
                         high_concept_count += concept_counter[low_concept]
-                        acc_high_concept_loss += high_concept_loss[low_concept].cpu()
+                        acc_high_concept_loss += high_concept_loss[low_concept]
 
-                if acc_high_concept_loss.item() > 0:
+                if acc_high_concept_loss > 0:
                     cw_loss += self.cw_lambda * acc_high_concept_loss / high_concept_count
-
+            
             print(f"Total concept loss: {cw_loss}", flush=True)
             cw_losses.append(cw_loss)
 
-        return torch.stack(cw_losses).mean(dim=0) if len(cw_losses) > 0 else torch.as_tensor(0.0)
+        return sum(cw_losses) / len(cw_losses) if len(cw_losses) > 0 else 0
 
     def top_k_activated_concepts(self, images, k, idx) -> torch.Tensor:
         """
@@ -260,7 +266,7 @@ class ResNet(nn.Module):
             pos_bool = (X_test > 0).to(X_test)
             X_activated = (X_test * pos_bool).sum((2, 3)) / (pos_bool.sum((2, 3)) + 0.0001)
         elif activation_mode == 'pool_max':
-            X_pooled = F.max_pool2d(X_test, kernel_size=3, stride=3)
+            X_pooled = F.max_pool2d(X_test, kernel_size=1, stride=1)
             X_activated = X_pooled.mean((2, 3))
 
         module.current_batch_X_rot_activated = X_activated
@@ -299,31 +305,10 @@ class ResNet(nn.Module):
         return nn.Sequential(*layers)
 
     def _generate_concept_matrix(self, high_to_low: dict):
-        """
-        Generate a concept indicator matrix, which is a square 0-1 matrix. Each (i, j)-th entry is 1 if
-        the i-th and j-th low level concepts belong to the same high level concept, and 0 otherwise.
-        The concepts are indexed based on their order in `low_level.json`, but translated to start from index 0.
-        This matrix is used to train for concept whitening loss by the CWLayer.
-
-        For example, the concept indicator matrix
-        [[1, 1, 0, 0],
-         [1, 1, 0, 0],
-         [0, 0, 1, 1],
-         [0, 0, 1, 1]]
-        signifies that concepts 0 and 1 are in the same high level concept, and so are concepts 2 and 3.
-
-        Params:
-        -------
-        - high_to_low (dictionary): Mapping from high level concept to low level concept
-
-        Returns:
-        --------
-        - torch.Tensor: The concept indicator matrix
-        """
-        # Create an empty concept matrix of size num_low_level x num_low_level
+        if not high_to_low:
+            return None  # Return None if no high-level concepts
         concept_matrix = torch.zeros((self.num_low_level, self.num_low_level), dtype=torch.int)
 
-        # Populate the concept matrix
         for indices in high_to_low.values():
             for i in indices:
                 for j in indices:
@@ -332,6 +317,8 @@ class ResNet(nn.Module):
         return concept_matrix
 
     def _generate_latent_mappings(self, high_to_low: dict, latent_dim):
+        if not high_to_low:
+            return None  # Return None if no high-level concepts
         enough_dimensions = (latent_dim >= self.num_low_level)
         random.seed(42)
 
@@ -364,7 +351,7 @@ class ResNet(nn.Module):
         return out
 
 
-def res50(whitened_layers, high_to_low, cw_lambda, num_classes=200, activation_mode="pool_max",
+def res50(whitened_layers, high_to_low, cw_lambda, activation_mode="pool_max",
           pretrained_model=None, vanilla_pretrain=True):
     return ResNet(
         BottleNeck,
@@ -373,8 +360,73 @@ def res50(whitened_layers, high_to_low, cw_lambda, num_classes=200, activation_m
         whitened_layers=whitened_layers,
         high_to_low=high_to_low,
         cw_lambda=cw_lambda,
-        num_classes=num_classes,
         activation_mode=activation_mode,
         pretrain_loc=pretrained_model,
         vanilla_pretrain=vanilla_pretrain
     )
+
+
+# resNet50 model in the original CW model
+class ResidualNetTransfer(nn.Module):
+    def __init__(self, num_classes, args, whitened_layers=None, arch = 'resnet18', layers = [2,2,2,2], model_file = None):
+
+        super(ResidualNetTransfer, self).__init__()
+        self.layers = layers
+        self.model = models.__dict__[arch](num_classes=num_classes)
+        if model_file != None:
+            if not os.path.exists(model_file):
+                raise Exception("checkpoint {} not found!".format(model_file))
+            checkpoint = torch.load(model_file, map_location='cpu')
+            args.start_epoch = checkpoint['epoch']
+            args.best_prec1 = checkpoint['best_prec1']
+            print(args.start_epoch,checkpoint['best_prec1'])
+            state_dict = {str.replace(k,'module.',''): v for k,v in checkpoint['state_dict'].items()}
+            state_dict = {str.replace(k,'bw','bn'): v for k,v in state_dict.items()}
+            self.model.load_state_dict(state_dict)
+
+        self.whitened_layers = whitened_layers
+
+        for whitened_layer in whitened_layers:
+            if whitened_layer <= layers[0]:
+                self.model.layer1[whitened_layer-1].bn1 = cw_layer(64, activation_mode = args.act_mode)
+            elif whitened_layer <= layers[0] + layers[1]:
+                self.model.layer2[whitened_layer-layers[0]-1].bn1 = cw_layer(128, activation_mode = args.act_mode)
+            elif whitened_layer <= layers[0] + layers[1] + layers[2]:
+                self.model.layer3[whitened_layer-layers[0]-layers[1]-1].bn1 = cw_layer(256, activation_mode = args.act_mode)
+            elif whitened_layer <= layers[0] + layers[1] + layers[2] + layers[3]:
+                self.model.layer4[whitened_layer-layers[0]-layers[1]-layers[2]-1].bn1 = cw_layer(512, activation_mode = args.act_mode)
+    
+    def change_mode(self, mode):
+        """
+        Change the training mode
+        mode = -1, no update for gradient matrix G
+             = 0 to k-1, the column index of gradient matrix G that needs to be updated
+        """
+        layers = self.layers
+        for whitened_layer in self.whitened_layers:
+            if whitened_layer <= layers[0]:
+                self.model.layer1[whitened_layer-1].bn1.mode = mode
+            elif whitened_layer <= layers[0] + layers[1]:
+                self.model.layer2[whitened_layer-layers[0]-1].bn1.mode = mode
+            elif whitened_layer <= layers[0] + layers[1] + layers[2]:
+                self.model.layer3[whitened_layer-layers[0]-layers[1]-1].bn1.mode = mode
+            elif whitened_layer <= layers[0] + layers[1] + layers[2] + layers[3]:
+                self.model.layer4[whitened_layer-layers[0]-layers[1]-layers[2]-1].bn1.mode = mode
+    
+    def update_rotation_matrix(self):
+        """
+        update the rotation R using accumulated gradient G
+        """
+        layers = self.layers
+        for whitened_layer in self.whitened_layers:
+            if whitened_layer <= layers[0]:
+                self.model.layer1[whitened_layer-1].bn1.update_rotation_matrix()
+            elif whitened_layer <= layers[0] + layers[1]:
+                self.model.layer2[whitened_layer-layers[0]-1].bn1.update_rotation_matrix()
+            elif whitened_layer <= layers[0] + layers[1] + layers[2]:
+                self.model.layer3[whitened_layer-layers[0]-layers[1]-1].bn1.update_rotation_matrix()
+            elif whitened_layer <= layers[0] + layers[1] + layers[2] + layers[3]:
+                self.model.layer4[whitened_layer-layers[0]-layers[1]-layers[2]-1].bn1.update_rotation_matrix()
+
+    def forward(self, x):
+        return self.model(x)

@@ -241,7 +241,6 @@ def train(
         target: torch.Tensor
         # NOTE: CUB dataset labels start at 1, hence this line. If your target starts at zero, this needs to be removed!
         # target = target - 1
-        print(f"TRAIN LOOP: input size: {inp.shape}, target size: {target.shape}")
 
         # Train for concept whitening loss once every train_cw_freq batches.
         if (i + 1) % CONFIG["train"]["train_cw_freq"] == 0:
@@ -262,7 +261,6 @@ def train(
                         break  # only sample one batch for each concept
 
                 model.module.update_rotation_matrix()
-                print("Rotation matrix updated")
                 # Stop computing the gradient for concept whitening.
                 # A mode of -1 is the default mode that skips gradient computation.
                 model.module.change_mode(-1)
@@ -271,7 +269,6 @@ def train(
         # Move them to CUDA, assumes CUDA access
         inp = inp.cuda()
         target = target.cuda()
-        print(f"TRAIN LOOP post cuda: input size: {inp.shape}, target size: {target.shape}")
 
         # Forward pass + loss computation
         output = model(inp)
@@ -280,7 +277,6 @@ def train(
         # Performance metrics
         total_loss += loss.item()
         total_correct += top_k_correct(output, target)
-        print("Loss computed")
 
         # Calculate CW loss once every train_cw_freq batches
         if (i + 1) % CONFIG["train"]["train_cw_freq"] == 0:

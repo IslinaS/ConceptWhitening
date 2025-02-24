@@ -2,6 +2,7 @@ import os
 import pyarrow  # Needed for parquet
 import json
 import pandas as pd
+import shutil
 from sklearn.model_selection import train_test_split
 from PIL import Image, ImageFilter
 from pycocotools.coco import COCO
@@ -14,11 +15,15 @@ ANNOTATIONS_DIR = os.path.join(DATASET_DIR, "annotations")
 ANNOTATION_FILE = os.path.join(ANNOTATIONS_DIR, 'instances_val2017.json')
 
 TRAIN_IMAGES_DIR = os.path.join(DATASET_DIR, "images/train")
-VAL_IMAGES_DIR = os.path.join(DATASET_DIR, "images/test")
+TEST_IMAGES_DIR = os.path.join(DATASET_DIR, "images/test")
 
-# Ensure image directories exist
+# Ensure image directories exist and are clean
+if os.path.exists(TRAIN_IMAGES_DIR):
+    shutil.rmtree(TRAIN_IMAGES_DIR)
+if os.path.exists(TEST_IMAGES_DIR):
+    shutil.rmtree(TEST_IMAGES_DIR)
 os.makedirs(TRAIN_IMAGES_DIR, exist_ok=True)
-os.makedirs(VAL_IMAGES_DIR, exist_ok=True)
+os.makedirs(TEST_IMAGES_DIR, exist_ok=True)
 
 
 def load_api(annotation_file: str) -> COCO:
@@ -176,9 +181,10 @@ def augment_data(image: Image.Image, original_row: pd.Series, dir_path):
         'blurred': ImageFilter.GaussianBlur(radius=2)
     }
     new_rows = []
+
     for suffix, transform in transformations.items():
         if suffix == 'rotated':
-            new_image = image.rotate(transform, expand=True)
+            new_image = image.rotate(transform)
         elif suffix == 'flipped':
             new_image = image.transpose(transform)
         else:
@@ -192,6 +198,7 @@ def augment_data(image: Image.Image, original_row: pd.Series, dir_path):
         new_row['path'] = new_path
         new_row['augmented'] = 1
         new_rows.append(new_row)
+
     return new_rows
 
 if __name__ == "__main__":
@@ -200,7 +207,7 @@ if __name__ == "__main__":
     train_df, test_df = split_dataset(df)
 
     train_df: pd.DataFrame = crop_and_augment(train_df, IMAGES_DIR, TRAIN_IMAGES_DIR)
-    test_df: pd.DataFrame = crop_and_augment(test_df, IMAGES_DIR, VAL_IMAGES_DIR)
+    test_df: pd.DataFrame = crop_and_augment(test_df, IMAGES_DIR, TEST_IMAGES_DIR)
 
     train_df.to_parquet(os.path.join(DATASET_DIR, "train.parquet"), index=False)
     test_df.to_parquet(os.path.join(DATASET_DIR, "test.parquet"), index=False)

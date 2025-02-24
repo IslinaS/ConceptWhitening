@@ -32,7 +32,7 @@ train:
   batch_size: 128
   workers: 3
   checkpoint_prefix: "hung_feb24_coco"
-  allowed_concepts: []
+  allowed_concepts: [2, 31, 41, 44, 70]
 
 eval:
   top_k_concepts: True

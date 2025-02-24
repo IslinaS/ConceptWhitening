@@ -123,18 +123,6 @@ def split_dataset(df: pd.DataFrame, test_size=0.2, random_state=42):
     val_df['is_train'] = 0
     return train_df, val_df
 
-def save_images(df: pd.DataFrame, output_dir: str):
-    """
-    Copies images into respective train/test directories.
-    """
-    os.makedirs(output_dir, exist_ok=True)
-    for _, row in df.iterrows():
-        src_path = row['path']
-        dst_path = os.path.join(output_dir, os.path.basename(src_path))
-        if not os.path.exists(dst_path):
-            image = Image.open(src_path)
-            image.save(dst_path)
-
 def crop_and_augment(df: pd.DataFrame, base_path: str, target_dir: str, target_size=(224, 224)):
     """
     Crops and augments images based on bounding boxes, then saves the processed images.
@@ -158,13 +146,12 @@ def crop_and_augment(df: pd.DataFrame, base_path: str, target_dir: str, target_s
         bbox = row['bbox']
         coords = row['coords']
 
-        if not os.path.exists(new_path):
-            image = Image.open(original_path)
-            image.save(new_path)
-            image_cropped = image.crop((bbox[0], bbox[1], bbox[2], bbox[3]))
-            image_resized = image_cropped.resize(target_size)
+        image = Image.open(original_path)
+        image_cropped = image.crop((bbox[0], bbox[1], bbox[2], bbox[3]))
+        image_resized = image_cropped.resize(target_size)
 
-            augmented_rows.extend(augment_data(image_resized, row, target_dir))
+        image_resized.save(new_path)
+        augmented_rows.extend(augment_data(image_resized, row, target_dir))
 
         x_scale = target_size[0] / (bbox[2] - bbox[0])
         y_scale = target_size[1] / (bbox[3] - bbox[1])
@@ -214,10 +201,6 @@ if __name__ == "__main__":
 
     train_df: pd.DataFrame = crop_and_augment(train_df, IMAGES_DIR, TRAIN_IMAGES_DIR)
     test_df: pd.DataFrame = crop_and_augment(test_df, IMAGES_DIR, VAL_IMAGES_DIR)
-
-    # # Save original images into train and test directories
-    # save_images(train_df, TRAIN_IMAGES_DIR)
-    # save_images(test_df, VAL_IMAGES_DIR)
 
     train_df.to_parquet(os.path.join(DATASET_DIR, "train.parquet"), index=False)
     test_df.to_parquet(os.path.join(DATASET_DIR, "test.parquet"), index=False)

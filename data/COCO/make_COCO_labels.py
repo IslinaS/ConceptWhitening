@@ -152,23 +152,25 @@ def crop_and_augment(df: pd.DataFrame, base_path: str, target_dir: str, target_s
         coords = row['coords']
 
         image = Image.open(original_path)
-        image_cropped = image.crop((bbox[0], bbox[1], bbox[2], bbox[3]))
-        image_resized = image_cropped.resize(target_size)
+        # image.save(new_path)
+        # image_cropped = image.crop((bbox[0], bbox[1], bbox[2], bbox[3]))
+        # image_resized = image_cropped.resize(target_size)
+        image_resized = image.resize(target_size)
 
         image_resized.save(new_path)
         augmented_rows.extend(augment_data(image_resized, row, target_dir))
 
-        x_scale = target_size[0] / (bbox[2] - bbox[0])
-        y_scale = target_size[1] / (bbox[3] - bbox[1])
+        # x_scale = target_size[0] / (bbox[2] - bbox[0])
+        # y_scale = target_size[1] / (bbox[3] - bbox[1])
 
-        new_coords = [
-            int((coords[0] - bbox[0]) * x_scale),
-            int((coords[1] - bbox[1]) * y_scale),
-            int((coords[2] - bbox[0]) * x_scale),
-            int((coords[3] - bbox[1]) * y_scale)
-        ]
+        # new_coords = [
+        #     int((coords[0] - bbox[0]) * x_scale),
+        #     int((coords[1] - bbox[1]) * y_scale),
+        #     int((coords[2] - bbox[0]) * x_scale),
+        #     int((coords[3] - bbox[1]) * y_scale)
+        # ]
 
-        df.at[idx, 'coords'] = new_coords
+        # df.at[idx, 'coords'] = new_coords
         df.at[idx, 'path'] = new_path
 
     augmented_df = pd.DataFrame(augmented_rows)

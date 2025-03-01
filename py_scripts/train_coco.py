@@ -217,8 +217,7 @@ def main():
     if CONFIG["eval"]["top_k_concepts"]:
         output_path = os.path.join(CONFIG["directories"]["eval"],
                                    f"top_k_concepts_{CONFIG['train']['checkpoint_prefix']}.json")
-        top_k_activated_concepts(concept_loaders, test_loader, model, output_path, low_level_names,
-                                 CONFIG["eval"]["k_concepts"])
+        top_k_activated_concepts(test_loader, model, output_path, low_level_names, CONFIG["eval"]["k_concepts"])
 
 
 def train(
@@ -313,7 +312,6 @@ def train(
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        print("Weights updated")
 
     end = time.time()
     avg_loss = total_loss / len(train_loader)
@@ -345,7 +343,6 @@ def validate(
             # Moves them to CUDA, assumes CUDA access
             target = target.cuda()
             inp = inp.cuda()
-            print(f"Validation Loop: inp size: {inp.shape}, target size: {target.shape}")
 
             # Forward pass
             output = model(inp)
@@ -354,7 +351,6 @@ def validate(
             # Performance metrics
             total_loss += loss.item()
             total_correct += top_k_correct(output, target)
-            print("Computed Val loss")
 
     avg_loss = total_loss / len(data_loader)
     acc = total_correct / len(data_loader.dataset)
@@ -387,7 +383,7 @@ def top_k_correct(output, target: torch.Tensor, k=1):
     return correct_topk
 
 
-def top_k_activated_concepts(concept_loaders, data_loader: DataLoader[BackboneDataset], model: nn.DataParallel[ResNet],
+def top_k_activated_concepts(data_loader: DataLoader[BackboneDataset], model: nn.DataParallel[ResNet],
                              output_path: str, low_level_names: dict[int, str], k=50):
     """
     This should only be run at the end of the training cycle, as it sets the model to evaluation mode.
